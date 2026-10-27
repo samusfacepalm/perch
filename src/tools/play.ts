@@ -4,6 +4,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { compareGolden, detectPlay, formatResult, runNative, type PlayOptions, type PlayPlan, type PlayResult } from "../play.js";
 import { runWebHeadless } from "../webplay.js";
 import { ToolError, type Tool } from "./types.js";
@@ -20,7 +21,7 @@ export const nativeRunner: PlayRunner = async (plan, cwd, opts, signal) => {
 // work) or a URL.
 function pagePlan(page: string, cwd: string): PlayPlan {
   if (/^https?:\/\//i.test(page)) return { kind: "web", label: page, url: page };
-  const file = path.resolve(cwd, page);
+  const file = /^file:\/\//i.test(page) ? fileURLToPath(page) : path.resolve(cwd, page);
   if (!fs.existsSync(file)) throw new ToolError(`No such page: ${file}`);
   const inside = !path.relative(cwd, file).startsWith("..");
   const root = inside ? cwd : path.dirname(file);
