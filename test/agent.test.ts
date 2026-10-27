@@ -148,3 +148,18 @@ test("unanswered tool calls get filler results", async () => {
   assert.deepEqual(msgs.map((m) => m.role), ["assistant", "tool", "tool", "user"]);
   assert.equal(msgs[2].tool_call_id, "b");
 });
+
+test("retireOldImages keeps only the newest batch once there are too many", async () => {
+  const { retireOldImages } = await import("../src/agent.js");
+  const batch = (n: number, tag: string) => ({ role: "user" as const, content: "Images produced by the tool calls above (x):", images: Array.from({ length: n }, (_, i) => `${tag}-${i}.png`) });
+  const few: any[] = [batch(3, "a"), batch(3, "b")];
+  retireOldImages(few);
+  assert.equal(few.filter((m: any) => m.images).length, 2, "under the limit nothing changes");
+
+  const attached = { role: "user" as const, content: "look at this", images: ["mine.png"] };
+  const many: any[] = [attached, batch(3, "a"), batch(3, "b"), batch(3, "c"), batch(3, "d"), batch(3, "e")];
+  retireOldImages(many);
+  const kept = many.filter((m: any) => m.images);
+  assert.deepEqual(kept.map((m: any) => m.images[0]), ["mine.png", "e-0.png"], "the user's own image and the newest batch stay");
+  assert.match((many[1] as any).content, /a-0\.png, a-1\.png, a-2\.png/);
+});

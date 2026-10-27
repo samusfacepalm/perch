@@ -32,6 +32,8 @@ export interface PlayOptions {
   seconds?: number; // how long to run (default 8)
   shots?: number[]; // seconds at which to capture (default spread over the run)
   keys?: { at: number; key: string }[]; // key presses, by DOM-style key name
+  script?: string; // web only: JavaScript run in the page before each screenshot; its value is logged
+  zoom?: { x: number; y: number; width: number; height: number }; // web only: capture this region at 2x
 }
 
 export interface PlayResult {
@@ -41,7 +43,8 @@ export interface PlayResult {
   errors: string[]; // lines that look like errors
   exitCode: number | null;
   stopped: boolean;
-  golden?: GoldenCheck[]; // filled in when the project has golden screenshots // Perch ended it at the time limit (it was still running)
+  golden?: GoldenCheck[]; // filled in when the project has golden screenshots
+  warnings?: string[]; // frames that look blank, black or blown out
   seconds: number;
 }
 
@@ -344,6 +347,7 @@ export function formatResult(r: PlayResult): string {
     `Ran ${r.plan.label} for ${r.seconds}s; ${r.stopped ? "it was still running and Perch closed it" : `it exited by itself with code ${r.exitCode}`}.`,
     r.screenshots.length ? `Screenshots (attached for you to look at if you can see images):\n${r.screenshots.join("\n")}` : "No screenshots were captured (no game window appeared).",
     r.golden?.length ? formatGolden(r.golden) : "",
+    r.warnings?.length ? `Check these frames:\n${r.warnings.join("\n")}` : "",
     r.errors.length ? `Lines that look like errors:\n${r.errors.join("\n")}` : "No error lines in the log.",
     `Log (last part):\n${r.log.slice(-6000) || "(empty)"}`,
   ];

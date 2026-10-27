@@ -151,7 +151,8 @@ export async function runWebHeadless(plan: PlayPlan, cwd: string, opts: PlayOpti
     await cdp.call("Runtime.enable");
     await cdp.call("Log.enable");
     await cdp.call("Page.enable");
-    await cdp.call("Emulation.setDeviceMetricsOverride", { width: 1280, height: 720, deviceScaleFactor: 1, mobile: false });
+    // A zoomed run renders at double density, so the close-up has real detail rather than enlarged pixels.
+    await cdp.call("Emulation.setDeviceMetricsOverride", { width: 1280, height: 720, deviceScaleFactor: opts.zoom ? 2 : 1, mobile: false });
     await cdp.call("Emulation.setFocusEmulationEnabled", { enabled: true }); // so key presses reach the page
     const nav = await cdp.call("Page.navigate", { url });
     if (nav.errorText) log(`[error] failed to load ${url}: ${nav.errorText}`);
@@ -159,7 +160,15 @@ export async function runWebHeadless(plan: PlayPlan, cwd: string, opts: PlayOpti
     const c = cdp;
     const events = [
       ...shots.map((at, i) => ({ at, run: async () => {
-        const r = await c.call("Page.captureScreenshot", { format: "png" });
+        if (opts.script) {
+          const r = await c.call("Runtime.evaluate", { expression: opts.script, awaitPromise: true, returnByValue: true });
+          if (r.exceptionDetails) log(`[error] script: ${r.exceptionDetails.exception?.description ?? r.exceptionDetails.text}`);
+          else if (r.result?.value !== undefined) log(`[script] ${typeof r.result.value === "string" ? r.result.value : JSON.stringify(r.result.value)}`.slice(0, 2000));
+          // Let the page draw the change before the shot.
+          await c.call("Runtime.evaluate", { expression: "new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))", awaitPromise: true });
+        }
+        const z = opts.zoom;
+        const r = await c.call("Page.captureScreenshot", { format: "png", ...(z ? { clip: { x: z.x, y: z.y, width: z.width, height: z.height, scale: 1 } } : {}) });
         const file = path.join(dir, `shot-${i + 1}-${at}s.png`);
         fs.writeFileSync(file, Buffer.from(r.data, "base64"));
         screenshots.push(file);

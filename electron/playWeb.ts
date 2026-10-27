@@ -47,7 +47,20 @@ async function runWeb(plan: PlayPlan, cwd: string, opts: PlayOptions, signal?: A
   const events = [
     ...shots.map((at, i) => ({ at, run: async () => {
       if (win.isDestroyed()) return;
-      const img = await win.webContents.capturePage();
+      if (opts.script) {
+        try {
+          const v = await win.webContents.executeJavaScript(opts.script, true);
+          if (v !== undefined) log(`[script] ${typeof v === "string" ? v : JSON.stringify(v)}`.slice(0, 2000));
+        } catch (e: any) {
+          log(`[error] script: ${e?.message ?? e}`);
+        }
+        // Let the page draw the change before the shot.
+        await win.webContents.executeJavaScript("new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))", true).catch(() => {});
+        if (win.isDestroyed()) return;
+      }
+      const z = opts.zoom;
+      let img = await win.webContents.capturePage(z ? { x: z.x, y: z.y, width: z.width, height: z.height } : undefined);
+      if (z) img = img.resize({ width: z.width * 2, height: z.height * 2, quality: "best" });
       const file = path.join(dir, `shot-${i + 1}-${at}s.png`);
       fs.writeFileSync(file, img.toPNG());
       screenshots.push(file);

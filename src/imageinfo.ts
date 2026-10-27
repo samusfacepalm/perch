@@ -138,3 +138,29 @@ export function describe(file: string, frame?: { w: number; h: number }): string
   }
   return lines.join("\n");
 }
+
+// Cheap warnings about a screenshot that a model without vision can read too: a frame that is
+// almost one colour (nothing drew), almost black, or largely blown out to white.
+export function frameWarnings(file: string): string[] {
+  const img = loadPng(file);
+  const buckets = new Map<number, number>();
+  let n = 0;
+  let lum = 0;
+  let white = 0;
+  for (let i = 0; i < img.data.length; i += 4 * 7) {
+    const r = img.data[i], g = img.data[i + 1], b = img.data[i + 2];
+    const key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+    buckets.set(key, (buckets.get(key) ?? 0) + 1);
+    const l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    lum += l;
+    if (l > 245) white++;
+    n++;
+  }
+  if (!n) return [];
+  const out: string[] = [];
+  const top = Math.max(...buckets.values()) / n;
+  if (top > 0.97) out.push("almost all one colour: the page or game may have drawn nothing");
+  else if (lum / n < 10) out.push("almost black: the scene may be unlit or the camera may face nothing");
+  if (top <= 0.97 && white / n > 0.3) out.push(`${Math.round((100 * white) / n)}% pure white: likely overexposed or blown-out glow`);
+  return out;
+}

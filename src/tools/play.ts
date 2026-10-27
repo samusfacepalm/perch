@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { compareGolden, detectPlay, formatResult, runNative, type PlayOptions, type PlayPlan, type PlayResult } from "../play.js";
 import { runWebHeadless } from "../webplay.js";
+import { frameWarnings } from "../imageinfo.js";
 import { ToolError, type Tool } from "./types.js";
 
 export type PlayRunner = (plan: PlayPlan, cwd: string, opts: PlayOptions, signal?: AbortSignal) => Promise<PlayResult>;
@@ -38,7 +39,9 @@ Use it after changing a game or building anything visual for the web (a page, a 
 - page: an HTML file in the project (e.g. "index.html") or a URL to open instead of the detected game. Relative links in the page work.
 - seconds: how long to run, default 8, max 120.
 - shots: seconds at which to take screenshots, e.g. [1, 4, 8]. Default: three spread over the run.
-- keys: key presses, e.g. [{"at": 2, "key": "Space"}, {"at": 3, "key": "ArrowRight"}, {"at": 4, "key": "Enter"}]. Names: letters, digits, Space, Enter, Escape, Tab, arrows, Shift, F1-F12.${found ? "" : "\nNo game was detected in this folder, so pass page."}${plan.note && found ? `\nNote: ${plan.note}` : ""}`,
+- keys: key presses, e.g. [{"at": 2, "key": "Space"}, {"at": 3, "key": "ArrowRight"}, {"at": 4, "key": "Enter"}]. Names: letters, digits, Space, Enter, Escape, Tab, arrows, Shift, F1-F12.
+- script (web only): JavaScript run in the page before each screenshot; its value goes in the log. Use it to inspect without editing files: move the camera for a close-up or another angle, pause an animation, or read state (object counts, positions, settings). It can reach only what the page puts on window, so expose handles there in code you write (e.g. window.camera, window.controls, window.scene).
+- zoom (web only): {x, y, width, height} in page pixels of a 1280x720 view; the shots show just that region at twice the resolution. For checking detail.${found ? "" : "\nNo game was detected in this folder, so pass page."}${plan.note && found ? `\nNote: ${plan.note}` : ""}`,
     parameters: {
       type: "object",
       properties: {
@@ -46,6 +49,8 @@ Use it after changing a game or building anything visual for the web (a page, a 
         seconds: { type: "number" },
         shots: { type: "array", items: { type: "number" } },
         keys: { type: "array", items: { type: "object", properties: { at: { type: "number" }, key: { type: "string" } }, required: ["at", "key"] } },
+        script: { type: "string" },
+        zoom: { type: "object", properties: { x: { type: "number" }, y: { type: "number" }, width: { type: "number" }, height: { type: "number" } }, required: ["x", "y", "width", "height"] },
       },
     },
     summarize: (a) => `${a.page ?? plan.label}${a.seconds ? `, ${a.seconds}s` : ""}`,
@@ -53,8 +58,15 @@ Use it after changing a game or building anything visual for the web (a page, a 
       // The project may have changed since the session started.
       const current = a.page ? pagePlan(a.page, ctx.cwd) : detectPlay(ctx.cwd);
       if (current.kind === "none" || current.kind === "unity") throw new ToolError((current.note ?? "Nothing to run.") + (a.page ? "" : " To open a web page, pass page."));
-      const r = await runner(current, ctx.cwd, { seconds: a.seconds, shots: a.shots, keys: a.keys }, ctx.signal);
+      const r = await runner(current, ctx.cwd, { seconds: a.seconds, shots: a.shots, keys: a.keys, script: a.script, zoom: a.zoom }, ctx.signal);
       r.golden = await compareGolden(ctx.cwd, r.screenshots);
+      r.warnings = r.screenshots.flatMap((s) => {
+        try {
+          return frameWarnings(s).map((w) => `${path.basename(s)}: ${w}`);
+        } catch {
+          return [];
+        }
+      });
       return { output: formatResult(r), title: `${r.screenshots.length} shots, ${r.errors.length} errors`, images: r.screenshots, play: r };
     },
   };

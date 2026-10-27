@@ -163,6 +163,7 @@ export class Agent {
     for (let step = 0; step < this.config.maxSteps; step++) {
       if (signal.aborted) return "[interrupted]";
       if (this.contextTokens > limit) await this.compact(signal);
+      retireOldImages(this.session.messages);
 
       // On the last allowed step, tools are withdrawn so the model writes a hand-over instead.
       const last = step === this.config.maxSteps - 1;
@@ -219,7 +220,7 @@ export class Agent {
       // follow as a user message, for models that can see. The newest four, to bound the cost.
       if (this.toolImages.length && model.vision) {
         const images = this.toolImages.slice(-4);
-        this.push({ role: "user", content: `Images produced by the tool calls above (${images.length} of ${this.toolImages.length}):`, images }, false);
+        this.push({ role: "user", content: `${TOOL_IMAGES} (${images.length} of ${this.toolImages.length}):`, images }, false);
       }
       this.toolImages = [];
 
@@ -501,6 +502,20 @@ const DESTRUCTIVE = [
 
 export function looksDestructive(cmd: string): boolean {
   return DESTRUCTIVE.some((re) => re.test(cmd));
+}
+
+// A look-and-fix loop piles up screenshots, and every request re-sends them all. Once there are
+// more than MAX_IMAGES, only the newest batch stays; older ones become their file paths. They go
+// all at once rather than one by one, so the prompt cache breaks once every few plays, not every play.
+const TOOL_IMAGES = "Images produced by the tool calls above";
+const MAX_IMAGES = 12;
+export function retireOldImages(messages: Message[]) {
+  const batches = messages.filter((m): m is Extract<Message, { role: "user" }> => m.role === "user" && !!m.images?.length && m.content.startsWith(TOOL_IMAGES));
+  if (batches.reduce((n, m) => n + m.images!.length, 0) <= MAX_IMAGES) return;
+  for (const m of batches.slice(0, -1)) {
+    m.content += ` [No longer shown, to save context; the files are ${m.images!.join(", ")}]`;
+    delete m.images;
+  }
 }
 
 export function repairToolPairs(messages: Message[]) {
