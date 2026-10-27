@@ -100,6 +100,19 @@ export class Agent {
     return this.lastTokens || estimateTokens(this.session.messages);
   }
 
+  // Hours since this session last did anything.
+  get idleHours() {
+    return (Date.now() - new Date(this.session.updated).getTime()) / 3_600_000;
+  }
+
+  // Whether the session qualifies for idle summarising: switched on, idle long enough, and
+  // holding enough context to be worth it. Its provider cache has expired by then, so the next
+  // message would pay full price for all of it.
+  shouldCompactIdle(): boolean {
+    const c = this.config;
+    return c.idleCompact && !this.busy && !this.opts.isSubagent && this.idleHours >= c.idleCompactHours && this.contextTokens >= c.idleCompactMinTokens;
+  }
+
   private toolSpecs(): ToolSpec[] {
     return [...this.tools.values()].map((t) => ({
       type: "function",
@@ -116,11 +129,16 @@ export class Agent {
   // Run one user request to completion.
   async run(input: string, images?: string[]): Promise<string> {
     if (this.controller) throw new Error("Agent is already running.");
+    const returningToIdle = this.shouldCompactIdle(); // checked before this run marks it busy
     this.controller = new AbortController();
     const signal = this.controller.signal;
     try {
       if (!this.session.messages.length) {
         this.session.messages.push({ role: "system", content: systemPrompt(this.session.cwd) });
+      }
+      if (returningToIdle) {
+        this.events.onStatus?.(`Idle for ${this.idleHours.toFixed(1)} hours with ${Math.round(this.contextTokens / 1000)}K of context: summarising before your message…`);
+        await this.compact(signal);
       }
       this.push(images?.length ? { role: "user", content: input, images } : { role: "user", content: input });
       if (this.session.title === "New session") this.session.title = input.replace(/\s+/g, " ").slice(0, 60);
@@ -271,6 +289,11 @@ export class Agent {
     const rule = this.config.permissions[tool.name] ?? "ask";
     if (rule === "deny") return { allow: false, feedback: `${tool.name} is disabled in the configuration.` };
     if (rule === "allow") return { allow: true };
+    // Session permission modes: "edits" lets file changes through, "all" lets everything
+    // through except shell commands that look destructive, which still ask.
+    const mode = this.session.permissionMode ?? "ask";
+    if (mode === "all" && !(tool.name === "bash" && looksDestructive(String(args.command ?? "")))) return { allow: true };
+    if ((mode === "edits" || mode === "all") && (tool.name === "write" || tool.name === "edit")) return { allow: true };
     if (tool.name === "bash") {
       const cmd = String(args.command ?? "").trim();
       // Allowlisted prefixes skip the prompt, but not when chained with other commands.
@@ -448,6 +471,29 @@ function spillLongOutput(output: string, tool: string, canDelegate: boolean): st
     ? "Use grep or read with offset/limit on that file, or hand it to a task subagent to digest. Do not read the whole file."
     : "Use grep or read with offset/limit on that file. Do not read the whole file.";
   return `${head}\n\n... [${lines.length} lines, ${output.length} characters in total; middle omitted] ...\n\n${tail}\n\nFull output saved to: ${file}\n${hint}`;
+}
+
+// Commands that delete, overwrite or rewrite history in bulk. In full-auto mode these still
+// ask, because they're the ones that can't be taken back.
+const DESTRUCTIVE = [
+  /\brm\s+(-\w*[rf]\w*\s+)+/i, // rm -rf, rm -r, rm -f
+  /\b(rmdir|rd)\s+\/s\b/i, // rmdir /s
+  /\bdel\s+(\/\w\s+)*\/[sq]\b/i, // del /s /q
+  /\bRemove-Item\b.*-Recurse/i,
+  /\b(git\s+push|npm\s+publish|gh\s+release\s+create)\b/i, // publishing reaches other people
+  // Stopping programs by name or pattern can hit the user's own; stopping by PID is fine.
+  /\btaskkill\b(?!.*\/pid\b)/i,
+  /\bStop-Process\b.*-(Name|ProcessName)\b|\bGet-Process\b.*\|\s*Stop-Process\b/i,
+  /\b(killall|pkill)\b/i,
+  /Browser\.close|Target\.closeTarget|\/json\/(close|version)/i, // closing browsers over the debugging protocol
+  /\bgit\s+(push\s+.*(--force|-f\b)|reset\s+--hard|clean\s+-\w*[fdx]|checkout\s+--\s+\.|branch\s+-D|stash\s+(drop|clear))/i,
+  /\b(format|diskpart|mkfs|shutdown|Stop-Computer|Restart-Computer)\b/i,
+  /\b(drop\s+(table|database)|truncate\s+table)\b/i,
+  />\s*\/dev\/sd|\bdd\s+if=/i,
+];
+
+export function looksDestructive(cmd: string): boolean {
+  return DESTRUCTIVE.some((re) => re.test(cmd));
 }
 
 export function repairToolPairs(messages: Message[]) {

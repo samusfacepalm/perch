@@ -15,6 +15,15 @@ export interface ModelChoice {
   vision?: boolean;
 }
 
+export type Mode = "ask" | "edits" | "all";
+const MODES: Mode[] = ["ask", "edits", "all"];
+const MODE_LABEL: Record<Mode, string> = { ask: "Ask", edits: "Auto-edit", all: "Full auto" };
+const MODE_HELP: Record<Mode, string> = {
+  ask: "Ask: Perch asks before editing files, running commands or using MCP tools.",
+  edits: "Auto-edit: file edits and writes go ahead; commands and MCP tools still ask.",
+  all: "Full auto: everything goes ahead, except commands that delete in bulk, rewrite git history or publish, which still ask.",
+};
+
 const drafts = new Map<string, string>();
 const draftImages = new Map<string, string[]>();
 
@@ -26,6 +35,8 @@ interface Props {
   onModel: (ref: string) => void;
   auto: boolean;
   onAuto: (on: boolean) => void;
+  mode: Mode;
+  onMode: (mode: Mode) => void;
   contextTokens: number;
   contextWindow: number;
   compactAt: number;
@@ -191,12 +202,28 @@ export function Composer(p: Props) {
               <path d="M2 4l3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </label>
-          <button className={`pill toggle-pill ${p.auto ? "on" : ""}`} onClick={() => p.onAuto(!p.auto)} title="Auto: keep working while the plan still has open items">
+          <button
+            className={`pill mode-pill mode-${p.mode}`}
+            onClick={() => p.onMode(MODES[(MODES.indexOf(p.mode) + 1) % MODES.length])}
+            title={MODE_HELP[p.mode] + "\nClick to change."}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12">
+              {p.mode === "ask" ? (
+                <path d="M6 1.5l4 1.6v2.8c0 2.4-1.7 4-4 4.6-2.3-.6-4-2.2-4-4.6V3.1z" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+              ) : p.mode === "edits" ? (
+                <path d="M2 10l.6-2.4L8 2.2l1.8 1.8-5.4 5.4zM7 3.2l1.8 1.8" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+              ) : (
+                <path d="M6.6 1L2.5 7h3l-.6 4L9.5 5h-3z" fill="currentColor" />
+              )}
+            </svg>
+            {MODE_LABEL[p.mode]}
+          </button>
+          <button className={`pill toggle-pill ${p.auto ? "on" : ""}`} onClick={() => p.onAuto(!p.auto)} title="Keep going: when Perch stops with items still open in its plan, nudge it to carry on">
             <svg width="12" height="12" viewBox="0 0 12 12">
               <path d="M2 6a4 4 0 0 1 7-2.6M10 6a4 4 0 0 1-7 2.6" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
               <path d="M9.4 1.6v2.2H7.2M2.6 10.4V8.2h2.2" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            Auto
+            Keep going
           </button>
           <span className="spacer" />
           <ContextRing used={p.contextTokens} max={p.contextWindow} mark={p.compactAt} />

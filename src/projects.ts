@@ -6,6 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { listSessions } from "./session.js";
+import { HOME } from "./config.js";
 
 export interface Project {
   path: string;
@@ -51,7 +52,7 @@ export async function knownProjects(): Promise<Project[]> {
   const found = new Map<string, Project>();
   const add = (p: string, source: string, lastUsed?: string) => {
     // Skip worktrees and throwaway folders (Perch's and the Claude app's scratch workspaces).
-    if (!p || p === "/" || /[\\/](\.claude[\\/]worktrees|\.perch[\\/]scratch|scratch-workspaces)[\\/]/i.test(p)) return;
+    if (!p || p === "/" || /[\\/](\.claude[\\/]worktrees|\.perch[\\/]scratch|scratch-workspaces|AppData[\\/]Local[\\/]Temp)[\\/]/i.test(p)) return;
     const resolved = path.resolve(p);
     if (key(resolved) === key(os.homedir())) return;
     const k = key(resolved);
@@ -66,7 +67,7 @@ export async function knownProjects(): Promise<Project[]> {
   for (const p of claudeCodeProjects()) add(p.path, "Claude Code", p.lastUsed);
   for (const p of await openCodeProjects()) add(p.path, "OpenCode", p.lastUsed);
   for (const s of listSessions()) add(s.cwd, "Perch", s.updated);
-  return [...found.values()]
+  const projects = [...found.values()]
     .filter((p) => {
       try {
         return fs.statSync(p.path).isDirectory();
@@ -75,4 +76,28 @@ export async function knownProjects(): Promise<Project[]> {
       }
     })
     .sort((a, b) => (b.lastUsed ?? "").localeCompare(a.lastUsed ?? "") || a.name.localeCompare(b.name));
+  // Cached for the system prompt, which is built synchronously.
+  try {
+    fs.mkdirSync(HOME, { recursive: true });
+    fs.writeFileSync(PROJECTS_CACHE, JSON.stringify(projects.map((p) => ({ name: p.name, path: p.path }))));
+  } catch {}
+  return projects;
+}
+
+const PROJECTS_CACHE = path.join(HOME, "projects.json");
+
+// The user's projects as the model sees them: when they name one, it knows where it is.
+export function projectList(exclude?: string): string {
+  let list: { name: string; path: string }[] = [];
+  try {
+    list = JSON.parse(fs.readFileSync(PROJECTS_CACHE, "utf8"));
+  } catch {
+    return "";
+  }
+  const skip = exclude ? path.resolve(exclude).toLowerCase() : "";
+  return list
+    .filter((p) => path.resolve(p.path).toLowerCase() !== skip)
+    .slice(0, 40)
+    .map((p) => `- ${p.name}: ${p.path}`)
+    .join("\n");
 }

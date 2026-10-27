@@ -84,7 +84,8 @@ export const bash: Tool = {
       const timer = setTimeout(() => {
         if (a.background) {
           child.unref();
-          finish(`\n[still running in the background, pid ${child.pid}]`);
+          const stop = process.platform === "win32" ? `taskkill /pid ${child.pid} /T /F` : `kill ${child.pid}`;
+          finish(`\n[still running in the background as pid ${child.pid}. When you're done with it, stop it with: ${stop}. Stop only this process, not others by name.]`);
         } else {
           killTree(child.pid);
           finish(`\n[killed after ${timeout / 1000}s timeout]`);

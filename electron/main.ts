@@ -7,7 +7,7 @@ import fs from "node:fs";
 
 import path from "node:path";
 import { Agent, type Decision } from "../src/agent.js";
-import { discoverLocal, fetchModels, loadConfig, modelChoices, removeKey, resolveModel, saveKey, type PerchConfig } from "../src/config.js";
+import { discoverLocal, fetchModels, loadConfig, modelChoices, removeKey, resolveModel, saveKey, saveSetting, type PerchConfig } from "../src/config.js";
 import { isDeepSeekPeak } from "../src/pricing.js";
 import { knownProjects } from "../src/projects.js";
 import { loadAgents, loadInstructions, loadSkills } from "../src/instructions.js";
@@ -64,6 +64,8 @@ function snapshot(agent: Agent) {
     todos: s.todos,
     usage: s.usage,
     compactions: s.compactions,
+    permissionMode: s.permissionMode ?? "ask",
+    keepGoing: !!agent.opts.autoContinue,
     compactAt: Math.min(context * config.compactAt, config.compactTokens),
     contextTokens: agent.contextTokens,
     contextWindow: context,
@@ -175,6 +177,16 @@ function registerIpc() {
   });
 
   ipcMain.handle("models:list", () => modelChoices(config));
+
+  // Settings the app lets you change; saved to ~/.perch/config.json.
+  const EDITABLE = ["idleCompact", "idleCompactHours", "idleCompactMinTokens", "compactTokens"] as const;
+  ipcMain.handle("settings:get", () => Object.fromEntries(EDITABLE.map((k) => [k, config[k]])));
+  ipcMain.handle("settings:set", (_e, name: (typeof EDITABLE)[number], value: unknown) => {
+    if (!EDITABLE.includes(name)) throw new Error(`Unknown setting: ${name}`);
+    (config as any)[name] = value;
+    saveSetting(name, value);
+    return config[name];
+  });
 
   ipcMain.handle("keys:list", () =>
     Object.values(config.providers).map((p) => ({
@@ -321,6 +333,13 @@ function registerIpc() {
     return snapshot(a);
   });
 
+  ipcMain.handle("session:setMode", (_e, id: string, mode: "ask" | "edits" | "all") => {
+    const a = getAgent(id);
+    a.session.permissionMode = mode;
+    saveSessionSoon(a.session);
+    return mode;
+  });
+
   ipcMain.handle("session:setAuto", (_e, id: string, on: boolean) => {
     getAgent(id).opts.autoContinue = on;
     return on;
@@ -418,8 +437,32 @@ app.on("second-instance", () => {
 // page can never read other files through it.
 protocol.registerSchemesAsPrivileged([{ scheme: "perch-file", privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true } }]);
 
+// Once an hour, summarise sessions that have sat idle long enough with lots of context (see
+// Agent.shouldCompactIdle). Only sessions active in the last day are looked at; older ones are
+// summarised when you come back to them.
+async function idleSweep() {
+  if (!config.idleCompact) return;
+  const cutoff = Date.now() - 24 * 3_600_000;
+  for (const s of listSessions()) {
+    if (new Date(s.updated).getTime() < cutoff) continue;
+    const a = getAgent(s.id);
+    if (!a.shouldCompactIdle()) continue;
+    try {
+      send(s.id, "status", { text: `Summarising: idle for ${a.idleHours.toFixed(1)} hours with ${Math.round(a.contextTokens / 1000)}K of context.` });
+      await a.compact();
+      saveSessionSoon(a.session);
+      send(s.id, "snapshot", { snapshot: snapshot(a) });
+      send(s.id, "status", { text: "" });
+    } catch (err: any) {
+      send(s.id, "status", { text: `Idle summarising failed: ${String(err?.message ?? err).slice(0, 160)}` });
+    }
+  }
+}
+
 app.whenReady().then(() => {
   installBuiltins();
+  setTimeout(idleSweep, 5 * 60_000);
+  setInterval(idleSweep, 60 * 60_000);
   protocol.handle("perch-file", (req) => {
     const file = new URL(req.url).searchParams.get("p") ?? "";
     if (!isImage(file) && !/\.(ogg|wav|mp3|m4a|flac)$/i.test(file)) return new Response("Not an image or sound", { status: 403 });

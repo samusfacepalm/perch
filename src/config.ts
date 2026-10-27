@@ -48,6 +48,12 @@ export interface PerchConfig {
   // Hard ceiling on context before compaction, even for 1M-token models: answers get worse
   // and every step gets dearer as the context grows, long before the window is full.
   compactTokens: number;
+  // Idle compaction: a session left alone this long, with at least this much context, is
+  // summarised (by the app's hourly check, or when you come back to it). DeepSeek's cache has
+  // expired by then, so the next message would otherwise pay full price for the whole context.
+  idleCompact: boolean;
+  idleCompactHours: number;
+  idleCompactMinTokens: number;
   prices?: Record<string, Price>;
 }
 
@@ -274,6 +280,9 @@ export function loadConfig(): PerchConfig {
     maxSteps: own.maxSteps ?? 400,
     compactAt: own.compactAt ?? 0.8,
     compactTokens: own.compactTokens ?? 200_000,
+    idleCompact: own.idleCompact ?? true,
+    idleCompactHours: own.idleCompactHours ?? 2.5,
+    idleCompactMinTokens: own.idleCompactMinTokens ?? 500_000,
     prices: own.prices,
   };
 }
@@ -325,6 +334,15 @@ export async function fetchModels(baseURL: string, apiKey?: string, timeoutMs = 
 }
 
 // Save an imported key (and optionally a custom base URL) to ~/.perch/auth.json.
+// Writes one setting to ~/.perch/config.json, keeping everything else in the file.
+export function saveSetting(name: string, value: unknown) {
+  const file = path.join(HOME, "config.json");
+  const own = readJSON(file) ?? {};
+  own[name] = value;
+  fs.mkdirSync(HOME, { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(own, null, 2));
+}
+
 export function saveKey(id: string, key: string, opts: { baseURL?: string; name?: string; models?: string[] } = {}) {
   const all = readJSON(PERCH_AUTH) ?? {};
   all[id] = { ...(all[id] ?? {}), key, ...opts };

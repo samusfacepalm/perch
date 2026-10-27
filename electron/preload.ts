@@ -5,6 +5,8 @@ import { contextBridge, ipcRenderer, webUtils } from "electron";
 const api = {
   init: () => ipcRenderer.invoke("init"),
   listModels: () => ipcRenderer.invoke("models:list"),
+  getSettings: () => ipcRenderer.invoke("settings:get"),
+  setSetting: (name: string, value: unknown) => ipcRenderer.invoke("settings:set", name, value),
   listKeys: () => ipcRenderer.invoke("keys:list"),
   saveKey: (opts: { id: string; key: string; baseURL?: string; name?: string }) => ipcRenderer.invoke("keys:save", opts),
   removeKey: (id: string) => ipcRenderer.invoke("keys:remove", id),
@@ -22,6 +24,7 @@ const api = {
   setModel: (id: string, model: string) => ipcRenderer.invoke("session:setModel", id, model),
   setCwd: (id: string, cwd: string) => ipcRenderer.invoke("session:setCwd", id, cwd),
   setAuto: (id: string, on: boolean) => ipcRenderer.invoke("session:setAuto", id, on),
+  setMode: (id: string, mode: "ask" | "edits" | "all") => ipcRenderer.invoke("session:setMode", id, mode),
   pickFolder: () => ipcRenderer.invoke("folder:pick"),
   openFolder: (dir: string) => ipcRenderer.invoke("folder:open", dir),
   send: (id: string, text: string, images?: string[]) => ipcRenderer.invoke("agent:send", id, text, images),

@@ -1,4 +1,5 @@
 import path from "node:path";
+import { fromWslPath } from "../wsl.js";
 import type { Session } from "../session.js";
 import type { AgentDef } from "../instructions.js";
 
@@ -35,7 +36,7 @@ export class ToolError extends Error {}
 // Accept Windows paths, forward-slash paths and Git Bash paths (/c/Users/...).
 export function resolvePath(cwd: string, p: string): string {
   if (typeof p !== "string" || !p) throw new ToolError("A path is required.");
-  let q = p.trim().replace(/^["']|["']$/g, "");
+  let q = fromWslPath(p.trim().replace(/^["']|["']$/g, ""));
   const bashDrive = /^\/([a-zA-Z])(\/|$)/.exec(q);
   if (process.platform === "win32" && bashDrive) q = bashDrive[1].toUpperCase() + ":/" + q.slice(3);
   return path.resolve(cwd, q);

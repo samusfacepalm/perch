@@ -25,6 +25,7 @@ Options:
   -m, --model <provider/model>   model to use, e.g. deepseek/deepseek-v4.1-pro
   -d, --dir <folder>             work in this folder instead of the current one
       --yolo                     approve every tool call without asking
+      --allow <tools>            approve just these tools, e.g. --allow write,edit
       --auto                     keep going when the model stops with open todos (default with -p)
   -h, --help`;
 
@@ -38,6 +39,7 @@ const { values, positionals } = parseArgs({
     model: { type: "string", short: "m" },
     dir: { type: "string", short: "d" },
     yolo: { type: "boolean" },
+    allow: { type: "string" },
     auto: { type: "boolean" },
     all: { type: "boolean" },
     help: { type: "boolean", short: "h" },
@@ -48,6 +50,7 @@ async function main() {
   if (values.help) return console.log(HELP);
   (await import("./builtin.js")).installBuiltins();
   const config = loadConfig();
+  for (const t of (values.allow ?? "").split(",").map((s) => s.trim()).filter(Boolean)) config.permissions[t] = "allow";
 
   if (positionals[0] === "mcp") {
     const { runMcpServer } = await import("./mcp.js");

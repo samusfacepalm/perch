@@ -25,6 +25,7 @@ export interface Session {
   todos: Todo[];
   compactions: number;
   summary?: string; // latest compaction summary, folded into the next one
+  permissionMode?: "ask" | "edits" | "all"; // what runs without asking (see Agent.permit)
   usage: SessionUsage;
 }
 

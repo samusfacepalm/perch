@@ -8,6 +8,8 @@ import path from "node:path";
 import { SHELL } from "./tools/bash.js";
 import { loadInstructions } from "./instructions.js";
 import { engineNotes } from "./engines.js";
+import { projectList } from "./projects.js";
+import { defaultDistro } from "./wsl.js";
 
 const BASE = `You are Perch, a coding agent. You work on the user's projects on their Windows PC: reading code, running commands, editing files, and, for games, playing them to see the result.
 
@@ -46,6 +48,7 @@ const BASE = `You are Perch, a coding agent. You work on the user's projects on 
 # Safety
 - Don't run destructive commands (rm -rf, git reset --hard, git push --force, dropping databases) unless the user asked for exactly that.
 - Never commit, push or publish unless the user asks.
+- Only stop, kill or close what you started in this session: the processes, servers, games, windows and browsers your own commands launched, by the process ID you were given. Never kill by name, pattern or port, never sweep debugging ports or close browsers you didn't open, and leave the user's running programs alone. If something of theirs is in the way, tell them instead.
 - Never print, log or commit secrets such as API keys.
 
 # Communication
@@ -71,7 +74,13 @@ export function systemPrompt(cwd: string, extraInstructions: string[] = []): str
     `Platform: ${process.platform} (${os.release()})`,
     `Shell for the bash tool: ${SHELL.name}`,
     `Date: ${new Date().toISOString().slice(0, 10)}`,
-  ].join("\n");
+    defaultDistro()
+      ? `WSL: ${defaultDistro()} is installed. File tools accept WSL paths: /mnt/c/... is C:\\..., and /home/... is \\\\wsl.localhost\\${defaultDistro()}\\home\\.... From the bash tool, run Linux commands with: wsl -e bash -lc "cd ~/project && make"`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const projects = projectList(cwd);
   const files = loadInstructions(cwd, extraInstructions);
   const section = (kind: string) =>
     files
@@ -86,6 +95,9 @@ export function systemPrompt(cwd: string, extraInstructions: string[] = []): str
     BASE,
     `# Environment\n${env}`,
     engine ? `# This project\n${engine}` : "",
+    projects
+      ? `# The user's other projects\nWhen the user mentions one of these by name, this is where it is: read and work in that folder directly, without searching for it.\n${projects}`
+      : "",
     global
       ? `# The user's instructions\nThese come from the user and apply to all work. Follow them; they override the defaults above. Some mention tools another agent has (Claude Code, OpenCode); use your nearest equivalent and ignore rules about tools you don't have.\n\n${global}`
       : "",

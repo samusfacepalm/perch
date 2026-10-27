@@ -46,6 +46,8 @@ interface Snapshot {
   };
   compactions: number;
   compactAt: number;
+  permissionMode?: "ask" | "edits" | "all";
+  keepGoing?: boolean;
   contextTokens: number;
   contextWindow: number;
   busy: boolean;
@@ -136,19 +138,55 @@ export function Parrot({ size = 48 }: { size?: number; blink?: boolean }) {
   return <img src={parrotSvg} width={size} height={size} alt="Perch parrot" draggable={false} style={{ display: "block" }} />;
 }
 
-function WorkingParrot({ startedAt }: { startedAt: number }) {
-  const [t, setT] = useState(0);
+// The parrot keeps you company while Perch works. What it does depends on what Perch is doing:
+// a curious head tilt while thinking, a chatty bob while writing, and a rotating repertoire of
+// dance moves while tools run. All CSS transforms, so it costs nothing.
+const DANCES = ["bob", "hop", "wiggle", "spin", "flap", "moonwalk", "sway", "headbang", "tiptoe"];
+const QUIPS: Record<string, string[]> = {
+  thinking: ["Pondering…", "Tilting head thoughtfully…", "Consulting the flock…", "Having a think…"],
+  writing: ["Squawking out an answer…", "Writing it up…", "Choosing words carefully…"],
+  tools: [
+    "Working…",
+    "Cracking a seed…",
+    "Ruffling feathers…",
+    "Pecking at the code…",
+    "Rearranging the nest…",
+    "Squawking at the compiler…",
+    "Hunting for crackers…",
+    "Preening the pixels…",
+    "Doing a little dance…",
+    "Flapping about productively…",
+  ],
+};
+
+function WorkingParrot({ startedAt, activity }: { startedAt: number; activity: "thinking" | "writing" | "tools" }) {
+  const [tick, setTick] = useState(0);
   useEffect(() => {
-    const i = setInterval(() => setT((x) => x + 1), 250);
+    const i = setInterval(() => setTick((x) => x + 1), 1000);
     return () => clearInterval(i);
   }, []);
   const secs = Math.floor((Date.now() - startedAt) / 1000);
+  // A new move every 2.5 seconds, never the same one twice in a row.
+  const step = Math.floor(tick / 2.5);
+  const move = activity === "thinking" ? "tilt" : activity === "writing" ? "chatter" : DANCES[(step * 7 + Math.floor(startedAt / 1000)) % DANCES.length];
+  const quips = QUIPS[activity];
+  const quip = quips[Math.floor(tick / 4 + startedAt / 1000) % quips.length];
   return (
     <div className="working">
-      <span className="bob" style={{ transform: `translateY(${t % 4 < 2 ? 0 : -2}px)` }}>
-        <Parrot size={20} blink={t % 24 === 23} />
+      <span className={`dancer move-${move}`} key={move + step}>
+        <Parrot size={26} />
+        {move === "sway" && (
+          <>
+            <span className="note n1">♪</span>
+            <span className="note n2">♫</span>
+          </>
+        )}
+        {move === "tilt" && <span className="note think">?</span>}
+        {move === "spin" && <span className="note sparkle">✦</span>}
       </span>
-      <span>Working… {secs}s</span>
+      <span>
+        {quip} <span className="muted">{secs}s</span>
+      </span>
     </div>
   );
 }
@@ -415,6 +453,40 @@ function Row({ label, children, big }: { label: string; children: React.ReactNod
   );
 }
 
+// When Perch summarises: the normal limit while working, and the idle sweep.
+function SummarySettings() {
+  const [s, setS] = useState<{ idleCompact: boolean; idleCompactHours: number; idleCompactMinTokens: number; compactTokens: number } | null>(null);
+  useEffect(() => {
+    api.getSettings().then(setS);
+  }, []);
+  if (!s) return null;
+  const set = async (name: string, value: unknown) => setS({ ...s, [name]: await api.setSetting(name, value) });
+  return (
+    <div className="summary-settings">
+      <label className="kv">
+        <span title="While working, Perch summarises the conversation once it reaches this size">Summarise while working at</span>
+        <select value={s.compactTokens} onChange={(e) => set("compactTokens", Number(e.target.value))}>
+          {[200_000, 400_000, 600_000, 800_000].map((n) => (
+            <option key={n} value={n}>
+              {n / 1000}K
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="kv toggle-row" title="Once an hour, and when you return to a session, summarise sessions left idle with a lot of context. DeepSeek's cache has expired by then, so the next message would pay full price for all of it.">
+        <span>
+          Summarise idle sessions
+          <span className="muted small"> (idle {s.idleCompactHours}h+, over {Math.round(s.idleCompactMinTokens / 1000)}K)</span>
+        </span>
+        <input type="checkbox" checked={s.idleCompact} onChange={(e) => set("idleCompact", e.target.checked)} />
+      </label>
+      {s.idleCompact && s.compactTokens <= s.idleCompactMinTokens && (
+        <div className="warn small">Sessions are summarised at {s.compactTokens / 1000}K while working, so none reach {Math.round(s.idleCompactMinTokens / 1000)}K. Raise the first setting for idle summarising to matter.</div>
+      )}
+    </div>
+  );
+}
+
 function UsagePanel({ snap, models }: { snap: Snapshot; models: ModelChoice[] }) {
   const [all, setAll] = useState<AllUsage | null>(null);
   useEffect(() => {
@@ -434,6 +506,7 @@ function UsagePanel({ snap, models }: { snap: Snapshot; models: ModelChoice[] })
         </Row>
         <Row label="Summarises at">{fmtK(snap.compactAt)}</Row>
         <Row label="Summarised so far">{snap.compactions}×</Row>
+        <SummarySettings />
       </section>
       <section>
         <h4>This session</h4>
@@ -1046,7 +1119,9 @@ export function App() {
             )}
             {live!.ask && <PermissionCard ask={live!.ask} onAnswer={answer} />}
             {live!.status && <div className="status">{live!.status}</div>}
-            {snap.busy && !live!.ask && <WorkingParrot startedAt={live!.startedAt} />}
+            {snap.busy && !live!.ask && (
+              <WorkingParrot startedAt={live!.startedAt} activity={live!.stream ? "writing" : live!.thinking ? "thinking" : "tools"} />
+            )}
             <Composer
               sessionId={snap.id}
               busy={snap.busy}
@@ -1056,10 +1131,15 @@ export function App() {
                 const s2 = await api.setModel(snap.id, ref);
                 update(snap.id, (l) => ({ ...l, snap: { ...l.snap, model: s2.model } }));
               }}
-              auto={!!auto[snap.id]}
+              auto={auto[snap.id] ?? !!snap.keepGoing}
               onAuto={(on) => {
                 setAuto((a) => ({ ...a, [snap.id]: on }));
                 api.setAuto(snap.id, on);
+              }}
+              mode={snap.permissionMode ?? "ask"}
+              onMode={(mode) => {
+                update(snap.id, (l) => ({ ...l, snap: { ...l.snap, permissionMode: mode } }));
+                api.setMode(snap.id, mode);
               }}
               contextTokens={snap.contextTokens}
               contextWindow={snap.contextWindow}

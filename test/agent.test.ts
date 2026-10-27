@@ -68,6 +68,9 @@ async function setup(reasoning = true) {
     maxSteps: 50,
     compactAt: 0.8,
     compactTokens: 200_000,
+    idleCompact: true,
+    idleCompactHours: 2.5,
+    idleCompactMinTokens: 20_000,
   };
   const session = newSession(work, "fake/m");
   const tools: string[] = [];
