@@ -221,13 +221,13 @@ function registerIpc() {
 
   // The Play button: same runner the agent's play tool uses.
   ipcMain.handle("play:detect", (_e, id: string) => detectPlay(getAgent(id).session.cwd));
-  ipcMain.handle("play:run", async (_e, id: string, opts: { seconds?: number }) => {
+  ipcMain.handle("play:run", async (_e, id: string, opts: { seconds?: number; shots?: number[]; keys?: { at: number; key: string }[] }) => {
     const a = getAgent(id);
     const plan = detectPlay(a.session.cwd);
     if (plan.kind === "none" || plan.kind === "unity") throw new Error(plan.note ?? "Nothing to run.");
     send(id, "status", { text: `Playing ${plan.label}…` });
     try {
-      const r = await runPlay(plan, a.session.cwd, { seconds: opts?.seconds ?? 8 });
+      const r = await runPlay(plan, a.session.cwd, { seconds: opts?.seconds ?? 8, shots: opts?.shots, keys: opts?.keys });
       r.golden = await compareGolden(a.session.cwd, r.screenshots);
       return r;
     } finally {

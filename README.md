@@ -93,6 +93,10 @@ pasted or dropped into the message box; DeepSeek V4.1 Flash can see them.
   dev servers, and built `.exe` files, including Unity builds in `Build/`. Anything else: add
   `.perch/play.json` with `command` (and `url` for web games). Native windows are captured with a
   small helper compiled on first use, so it works even when the game window is covered.
+- **Key presses** (the play tool's `keys`, e.g. `[{"at": 3, "key": "Space"}]`) reach native and
+  web games alike. Native games get them as window messages, so Perch never takes focus.
+- **Unity builds**: the old launcher dialog is clicked through in windowed mode. Fullscreen games
+  that minimise when unfocused are reported in the log instead of producing blank shots.
 - **Run card**: screenshots, error lines, the log, and **Ask Perch to fix**, which sends the lot.
 - **Golden screenshots**: **Set as golden** saves a run as the known-good reference in
   `.perch/golden/`; later runs, the agent's included, report how much each shot changed.
@@ -118,8 +122,8 @@ pasted or dropped into the message box; DeepSeek V4.1 Flash can see them.
 
 ## Not done yet
 
-Git-snapshot undo (OpenCode's `/undo`), web fetch/search tools, key presses for native games,
-and Claude Code plugin MCP servers.
+Git-snapshot undo (OpenCode's `/undo`), web fetch/search tools, Claude Code plugin MCP
+servers, and Unity play mode inside the editor (Play runs builds, or use the Unity MCP server).
 
 ## Licence
 

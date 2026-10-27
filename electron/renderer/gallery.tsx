@@ -31,10 +31,10 @@ export interface Shot {
   path: string;
   mtime?: number;
   bytes?: number;
-  source?: "tool" | "attached" | "project";
+  source?: "play" | "tool" | "attached" | "project";
 }
 
-const SOURCE_LABEL: Record<string, string> = { tool: "From a tool", attached: "Attached", project: "In the project" };
+const SOURCE_LABEL: Record<string, string> = { play: "From a play run", tool: "From a tool", attached: "Attached", project: "In the project" };
 
 function when(ms: number) {
   const s = (Date.now() - ms) / 1000;
@@ -67,7 +67,7 @@ export function ShotsPanel({ sessionId, refreshKey }: { sessionId: string; refre
 
 function Screenshots({ sessionId, refreshKey }: { sessionId: string; refreshKey: number }) {
   const [shots, setShots] = useState<Shot[] | null>(null);
-  const [filter, setFilter] = useState<"all" | "tool" | "project" | "attached">("all");
+  const [filter, setFilter] = useState<"all" | "play" | "tool" | "project" | "attached">("all");
   const [pixel, setPixel] = useState(true);
   const load = () => api.listShots(sessionId).then(setShots);
   useEffect(() => {
@@ -78,9 +78,9 @@ function Screenshots({ sessionId, refreshKey }: { sessionId: string; refreshKey:
   return (
     <>
       <div className="shots-bar">
-        {(["all", "tool", "project", "attached"] as const).map((f) => (
+        {(["all", "play", "tool", "project", "attached"] as const).map((f) => (
           <button key={f} className={`seg small-seg ${filter === f ? "on" : ""}`} onClick={() => setFilter(f)}>
-            {f === "all" ? `All ${shots.length}` : f === "tool" ? "Tools" : f === "project" ? "Project" : "Attached"}
+            {f === "all" ? `All ${shots.length}` : f === "play" ? "Play" : f === "tool" ? "Tools" : f === "project" ? "Project" : "Attached"}
           </button>
         ))}
         <button className="seg small-seg icon" title="Refresh" onClick={load}>
@@ -404,7 +404,12 @@ export function Lightbox() {
   const [fit, setFit] = useState(true);
   const [pixel, setPixel] = useState(true);
   const [info, setInfo] = useState(false);
-  const [picking, setPicking] = useState(false);
+  const [picking, setPickingState] = useState(false);
+  const pickingRef = useRef(false);
+  const setPicking = (v: boolean) => {
+    pickingRef.current = v;
+    setPickingState(v);
+  };
   const [dims, setDims] = useState("");
   const strip = useRef<HTMLDivElement>(null);
 
@@ -418,7 +423,14 @@ export function Lightbox() {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.tagName === "INPUT") return;
       const k = e.key.toLowerCase();
-      if (e.key === "Escape") picking ? setPicking(false) : state.mode !== "view" ? setMode("view") : close();
+      // Escape steps back one level: cancel picking, then leave compare/sprite, then close.
+      // Functional updates, so two quick presses each see the result of the one before.
+      if (e.key === "Escape") {
+        if (pickingRef.current) {
+          pickingRef.current = false;
+          setPicking(false);
+        } else setState((s) => (!s ? s : s.mode && s.mode !== "view" ? { ...s, mode: "view" } : null));
+      }
       else if (e.key === "ArrowRight") go(1);
       else if (e.key === "ArrowLeft") go(-1);
       else if (k === "f") setFit((f) => !f);

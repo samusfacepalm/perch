@@ -21,7 +21,7 @@ export function makePlayTool(cwd: string, runner: PlayRunner = nativeRunner): To
 Use it after changing the game, to check the change works and nothing broke: look at the screenshots and read the errors, then fix what's wrong and play again.
 - seconds: how long to run, default 8, max 120.
 - shots: seconds at which to take screenshots, e.g. [1, 4, 8]. Default: three spread over the run.
-- keys: key presses for web games, e.g. [{"at": 2, "key": "Space"}, {"at": 3, "key": "ArrowRight"}].${plan.note ? `\nNote: ${plan.note}` : ""}`,
+- keys: key presses, e.g. [{"at": 2, "key": "Space"}, {"at": 3, "key": "ArrowRight"}, {"at": 4, "key": "Enter"}]. Names: letters, digits, Space, Enter, Escape, Tab, arrows, Shift, F1-F12.${plan.note ? `\nNote: ${plan.note}` : ""}`,
     parameters: {
       type: "object",
       properties: {

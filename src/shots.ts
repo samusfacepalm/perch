@@ -7,13 +7,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { HOME } from "./config.js";
 import { IMAGE_DIR } from "./mcpClient.js";
+import { playShots } from "./play.js";
 import type { Message } from "./provider.js";
 
 export interface Shot {
   path: string;
   mtime: number;
   bytes: number;
-  source: "tool" | "attached" | "project";
+  source: "play" | "tool" | "attached" | "project";
 }
 
 export const ATTACH_DIR = path.join(HOME, "attachments");
@@ -50,6 +51,9 @@ export async function listShots(cwd: string, history: Message[], since: number):
       for (const match of m.content.matchAll(/[A-Za-z]:\\[^\n"'<>|*?]+?\.(?:png|jpe?g|webp|gif|bmp)/gi)) add(match[0], "tool");
     }
   }
+
+  // This project's play runs, from the Play button or the agent's play tool.
+  for (const p of playShots(cwd)) add(p, "play");
 
   // Everything MCP tools returned recently.
   try {

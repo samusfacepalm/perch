@@ -76,7 +76,7 @@ const KEYS: Record<string, string> = { ArrowUp: "Up", ArrowDown: "Down", ArrowLe
 async function runWeb(plan: PlayPlan, cwd: string, opts: PlayOptions, signal?: AbortSignal): Promise<PlayResult> {
   const seconds = Math.max(1, Math.min(120, opts.seconds ?? 8));
   const shots = (opts.shots?.length ? opts.shots : defaultShots(seconds)).filter((s) => s >= 0 && s <= seconds).sort((a, b) => a - b);
-  const dir = newRunDir();
+  const dir = newRunDir(cwd);
   const lines: string[] = [];
   const log = (s: string) => {
     lines.push(...s.split(/\r?\n/).filter(Boolean));
@@ -96,7 +96,11 @@ async function runWeb(plan: PlayPlan, cwd: string, opts: PlayOptions, signal?: A
     webPreferences: { backgroundThrottling: false, sandbox: true, contextIsolation: true },
   });
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  win.webContents.on("console-message", (e: any) => log(`[${e.level ?? "log"}] ${e.message}${e.sourceId ? ` (${path.basename(e.sourceId)}:${e.lineNumber})` : ""}`));
+  win.webContents.on("console-message", (e: any) => {
+    // Electron's own development banner isn't the game's output.
+    if (/^Electron Security Warning/.test(e.message ?? "")) return;
+    log(`[${e.level ?? "log"}] ${e.message}${e.sourceId ? ` (${path.basename(e.sourceId)}:${e.lineNumber})` : ""}`);
+  });
   win.webContents.on("did-fail-load", (_e, code, desc, failedUrl) => log(`[error] failed to load ${failedUrl}: ${desc} (${code})`));
   win.webContents.on("render-process-gone", (_e, d) => log(`[error] the game's page crashed: ${d.reason}`));
   win.webContents.on("preload-error", (_e, _p, err) => log(`[error] ${err.message}`));

@@ -31,7 +31,7 @@ export interface PlayPlan {
 export interface PlayOptions {
   seconds?: number; // how long to run (default 8)
   shots?: number[]; // seconds at which to capture (default spread over the run)
-  keys?: { at: number; key: string }[]; // key presses (web games only)
+  keys?: { at: number; key: string }[]; // key presses, by DOM-style key name
 }
 
 export interface PlayResult {
@@ -163,26 +163,59 @@ function ensureCaptureExe(): boolean {
   return true;
 }
 
-// Asynchronous on purpose: a synchronous call would freeze this process, which then can't
-// drain the game's output pipe, which can stall the game and hang the capture.
-export function captureWindow(pid: number, file: string): Promise<boolean> {
-  if (!ensureCaptureExe()) return Promise.resolve(false);
+// Windows virtual-key codes for the key names the play tool accepts (DOM-style names, plus a
+// few common aliases). Single letters and digits map to themselves.
+const VK: Record<string, number> = {
+  Space: 0x20, " ": 0x20, Enter: 0x0d, Return: 0x0d, Escape: 0x1b, Esc: 0x1b, Tab: 0x09, Backspace: 0x08,
+  ArrowLeft: 0x25, ArrowUp: 0x26, ArrowRight: 0x27, ArrowDown: 0x28, Left: 0x25, Up: 0x26, Right: 0x27, Down: 0x28,
+  Shift: 0x10, Control: 0x11, Ctrl: 0x11, Alt: 0x12, Home: 0x24, End: 0x23, PageUp: 0x21, PageDown: 0x22, Insert: 0x2d, Delete: 0x2e,
+  F1: 0x70, F2: 0x71, F3: 0x72, F4: 0x73, F5: 0x74, F6: 0x75, F7: 0x76, F8: 0x77, F9: 0x78, F10: 0x79, F11: 0x7a, F12: 0x7b,
+};
+
+export function virtualKey(name: string): number | undefined {
+  if (VK[name] !== undefined) return VK[name];
+  const k = name.replace(/^Key|^Digit/, "");
+  if (/^[a-z0-9]$/i.test(k)) return k.toUpperCase().charCodeAt(0);
+  return undefined;
+}
+
+// Runs the helper and returns what it printed ("" if it couldn't run or timed out).
+function runHelper(args: string[], timeoutMs = 5000): Promise<string> {
+  if (!ensureCaptureExe()) return Promise.resolve("");
   return new Promise((resolve) => {
-    const p = spawn(CAPTURE_EXE, [file, String(pid)], { windowsHide: true });
+    const p = spawn(CAPTURE_EXE, args, { windowsHide: true });
     let out = "";
     p.stdout.on("data", (d) => (out += d));
-    const timer = setTimeout(() => (p.kill(), resolve(false)), 5000);
-    p.on("exit", () => (clearTimeout(timer), resolve(/^OK/m.test(out))));
-    p.on("error", () => (clearTimeout(timer), resolve(false)));
+    const timer = setTimeout(() => (p.kill(), resolve("")), timeoutMs);
+    p.on("exit", () => (clearTimeout(timer), resolve(out)));
+    p.on("error", () => (clearTimeout(timer), resolve("")));
   });
+}
+
+export async function pressKey(pid: number, name: string, holdMs = 120): Promise<boolean> {
+  const vk = virtualKey(name);
+  if (vk === undefined) return false;
+  return /^OK/m.test(await runHelper(["key", String(pid), String(vk), String(holdMs)]));
+}
+
+// Asynchronous on purpose: a synchronous call would freeze this process, which then can't
+// drain the game's output pipe, which can stall the game and hang the capture.
+// "ok", or why there was nothing to capture.
+export async function captureWindow(pid: number, file: string): Promise<"ok" | "minimized" | "nowindow" | "failed"> {
+  const out = await runHelper([file, String(pid)]);
+  return /^OK/m.test(out) ? "ok" : /^MINIMIZED/m.test(out) ? "minimized" : /^NOWINDOW/m.test(out) ? "nowindow" : "failed";
 }
 
 const ERROR_LINE = /\b(error|exception|fatal|failed|traceback|panic|uncaught|script_error|null instance|nullreference)\b/i;
 
+// Lines engines print on every run that mention errors without being one (no VR headset,
+// Unity's empty-path probe at start-up), so they don't drown out real problems.
+const NOISE = [/OpenVR (Error|failed)|VRInitError/i, /CreateDirectory '' failed/i, /Failed to load 'openxr/i, /\bno error\b/i, /error_count[=:]\s*0\b/i];
+
 export function errorLines(log: string): string[] {
   return log
     .split(/\r?\n/)
-    .filter((l) => ERROR_LINE.test(l) && !/^\s*$/.test(l))
+    .filter((l) => ERROR_LINE.test(l) && !NOISE.some((n) => n.test(l)) && !/^\s*$/.test(l))
     .slice(-30);
 }
 
@@ -191,10 +224,33 @@ export function defaultShots(seconds: number): number[] {
   return [Math.min(2, seconds / 3), seconds / 2, seconds - 0.5].map((s) => Math.round(s * 10) / 10);
 }
 
-export function newRunDir(): string {
+// Each run gets its own folder; run.json records the project, so the gallery can show a
+// project's play screenshots.
+export function newRunDir(cwd: string): string {
   const dir = path.join(PLAY_DIR, new Date().toISOString().replace(/[:.]/g, "-"));
   fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "run.json"), JSON.stringify({ cwd: path.resolve(cwd) }));
   return dir;
+}
+
+// Screenshots from recent play runs of a project, newest first.
+export function playShots(cwd: string, limit = 40): string[] {
+  const want = path.resolve(cwd).toLowerCase();
+  let runs: string[];
+  try {
+    runs = fs.readdirSync(PLAY_DIR).filter((d) => /^\d{4}-/.test(d)).sort().reverse().slice(0, 200);
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  for (const run of runs) {
+    const dir = path.join(PLAY_DIR, run);
+    const meta = readJSON(path.join(dir, "run.json"));
+    if (!meta?.cwd || String(meta.cwd).toLowerCase() !== want) continue;
+    for (const f of fs.readdirSync(dir).filter((f) => f.endsWith(".png")).sort()) out.push(path.join(dir, f));
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 function killTree(pid?: number) {
@@ -210,7 +266,7 @@ export async function runNative(plan: PlayPlan, cwd: string, opts: PlayOptions, 
   if (!plan.command) throw new Error(plan.note ?? "Nothing to run.");
   const seconds = Math.max(1, Math.min(120, opts.seconds ?? 8));
   const shots = (opts.shots?.length ? opts.shots : defaultShots(seconds)).filter((s) => s >= 0 && s <= seconds).sort((a, b) => a - b);
-  const dir = newRunDir();
+  const dir = newRunDir(cwd);
   let log = "";
   const child = spawn(plan.command, plan.args ?? [], { cwd, windowsHide: false, shell: process.platform === "win32" && !/\.exe$/i.test(plan.command) });
   const add = (d: Buffer) => {
@@ -223,14 +279,42 @@ export async function runNative(plan: PlayPlan, cwd: string, opts: PlayOptions, 
   const exited = new Promise<void>((r) => child.on("exit", (code) => ((exitCode = code), r())));
   child.on("error", (e) => (log += `\n[failed to start: ${e.message}]`));
 
+  // Older Unity builds open a launcher dialog first; get past it before the clock starts.
+  if (plan.engine === "Unity") {
+    const deadline = Date.now() + 15_000;
+    while (Date.now() < deadline && exitCode === null && !signal?.aborted) {
+      const out = await runHelper(["unity-dialog", String(child.pid)]);
+      if (/^CLICKED/m.test(out)) {
+        log += "\n[perch] pressed Play! in the Unity launcher dialog (windowed)\n";
+        await new Promise((r) => setTimeout(r, 1500));
+        break;
+      }
+      if (/^NODIALOG/m.test(out)) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+
   const started = Date.now();
   const screenshots: string[] = [];
-  for (const [i, at] of shots.entries()) {
-    const wait = started + at * 1000 - Date.now();
+  // Screenshots and key presses on one timeline, in time order.
+  const events = [
+    ...shots.map((at, i) => ({ at, run: async () => {
+      const file = path.join(dir, `shot-${i + 1}-${at}s.png`);
+      const r = await captureWindow(child.pid!, file);
+      if (r === "ok") screenshots.push(file);
+      else if (r === "minimized") log += `${log.endsWith("\n") ? "" : "\n"}[perch] no screenshot at ${at}s: the game window was minimised (a fullscreen game minimises when it isn't the active window; set it to windowed mode)\n`;
+    } })),
+    ...(opts.keys ?? []).map((k) => ({ at: k.at, run: async () => {
+      const ok = await pressKey(child.pid!, k.key);
+      // On its own line, whatever the game was in the middle of printing.
+      log += `${log.endsWith("\n") ? "" : "\n"}[perch] pressed ${k.key} at ${k.at}s${ok ? "" : " (failed: no game window, or an unknown key name)"}\n`;
+    } })),
+  ].sort((a, b) => a.at - b.at);
+  for (const ev of events) {
+    const wait = started + ev.at * 1000 - Date.now();
     if (wait > 0) await Promise.race([new Promise((r) => setTimeout(r, wait)), exited]);
     if (exitCode !== null || signal?.aborted) break;
-    const file = path.join(dir, `shot-${i + 1}-${at}s.png`);
-    if (await captureWindow(child.pid!, file)) screenshots.push(file);
+    await ev.run();
   }
   const rest = started + seconds * 1000 - Date.now();
   if (rest > 0 && exitCode === null && !signal?.aborted) await Promise.race([new Promise((r) => setTimeout(r, rest)), exited]);
