@@ -477,7 +477,7 @@ select option:disabled { color: var(--muted); }
 .mode-pill.mode-all { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: color-mix(in srgb, var(--warn) 12%, transparent); }
 
 /* the working parrot's repertoire */
-.dancer { position: relative; display: inline-flex; width: 26px; height: 26px; transform-origin: 50% 90%; }
+.dancer { position: relative; display: inline-flex; width: 44px; height: 44px; transform-origin: 50% 90%; }
 .dancer .note { position: absolute; font-size: 11px; color: var(--accent); pointer-events: none; animation: float-note 1.4s ease-out infinite; }
 .dancer .n1 { left: -6px; top: -4px; }
 .dancer .n2 { right: -8px; top: -8px; animation-delay: .7s; color: var(--warn); }
@@ -498,6 +498,10 @@ select option:disabled { color: var(--muted); }
 .move-tiptoe { animation: d-tiptoe 1.2s ease-in-out infinite; }
 .move-tilt { animation: d-tilt 2.4s ease-in-out infinite; }
 .move-chatter { animation: d-chatter .22s ease-in-out infinite; }
+.move-strut { animation: d-strut 1.4s steps(1, end) infinite, d-bob .35s ease-in-out infinite; }
+.move-peck { animation: d-peck .6s ease-in infinite; }
+.move-puff { animation: d-puff 1.6s ease-in-out infinite; }
+.move-backflip { animation: d-backflip 1.8s cubic-bezier(.5,0,.3,1) infinite; }
 
 @keyframes d-bob { 50% { transform: translateY(-3px); } }
 @keyframes d-hop { 0%, 100% { transform: translateY(0) scale(1.08, .92); } 15% { transform: translateY(0) scale(1); } 50% { transform: translateY(-8px) scale(.96, 1.06); } 85% { transform: translateY(0) scale(1.06, .94); } }
@@ -549,3 +553,36 @@ select option:disabled { color: var(--muted); }
 .mascot img { width: 72px; height: 72px; transition: transform .15s; }
 .mascot:hover img { transform: translateY(-3px) rotate(-4deg); }
 .mascot.on { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent); }
+
+@keyframes d-strut { 0% { transform: translateX(-5px); } 25% { transform: translateX(0); } 50% { transform: translateX(5px) scaleX(-1); } 75% { transform: translateX(0) scaleX(-1); } }
+@keyframes d-peck { 0%, 60%, 100% { transform: rotate(0); } 75% { transform: rotate(28deg) translate(3px, 3px); } }
+@keyframes d-puff { 0%, 100% { transform: scale(1); } 40%, 60% { transform: scale(1.22, 1.12); } }
+@keyframes d-backflip { 0%, 40% { transform: translateY(0) rotate(0); } 70% { transform: translateY(-14px) rotate(-200deg); } 90%, 100% { transform: translateY(0) rotate(-360deg); } }
+
+/* the cheeky parrot on the home screen and in an empty chat */
+.cheeky { position: relative; border: none; background: none; padding: 0; cursor: pointer; transform-origin: 50% 85%; transition: transform .2s; }
+.cheeky:hover { transform: rotate(-6deg) scale(1.04); }
+.cheeky.idle-cock { animation: i-cock 1.2s ease-in-out; }
+.cheeky.idle-hop { animation: i-hop .9s cubic-bezier(.3,.7,.4,1); }
+.cheeky.idle-ruffle { animation: d-wiggle .2s ease-in-out 4; }
+.cheeky.idle-squawk { animation: i-squawk .5s ease-out; }
+.squawk { position: absolute; left: 70%; top: -6px; z-index: 2; white-space: nowrap; background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 12px 12px 12px 3px; padding: 6px 10px; font-size: 13px; font-weight: 600; box-shadow: 0 6px 20px rgba(0,0,0,.3); animation: pop .18s ease-out; pointer-events: none; }
+@keyframes i-cock { 30%, 70% { transform: rotate(-12deg); } }
+@keyframes i-hop { 0%, 100% { transform: translateY(0) scale(1); } 20% { transform: scale(1.06, .94); } 50% { transform: translateY(-12px) scale(.97, 1.04); } }
+@keyframes i-squawk { 0% { transform: scale(1); } 30% { transform: scale(1.12) rotate(-8deg); } 100% { transform: scale(1); } }
+@keyframes pop { from { transform: scale(.6) translateY(6px); opacity: 0; } }
+
+/* the flightless birds' parachute descent */
+.move-parachute { animation: d-parachute 2.5s ease-in-out infinite; }
+.cheeky.idle-parachute { animation: i-parachute 2.5s ease-in-out; }
+.chute { position: absolute; left: 48%; bottom: 58%; width: 80%; transform: translateX(-50%); pointer-events: none; }
+.glide { position: absolute; top: 50%; width: 34%; display: block; pointer-events: none; animation: flutter .25s ease-in-out infinite alternate; }
+.glide svg { display: block; width: 100%; }
+.glide.l { right: 54%; transform-origin: right center; }
+.glide.l svg { transform: scaleX(-1); }
+.glide.r { left: 52%; transform-origin: left center; }
+.dancer .glide, .dancer .chute, .cheeky .glide, .cheeky .chute { z-index: 0; }
+.dancer img, .cheeky img { position: relative; z-index: 1; }
+@keyframes flutter { from { transform: rotate(-10deg); } to { transform: rotate(12deg); } }
+@keyframes d-parachute { 0% { transform: translateY(0); } 12% { transform: translateY(-22px); } 40% { transform: translateY(-16px) rotate(-7deg); } 70% { transform: translateY(-7px) rotate(7deg); } 100% { transform: translateY(0) rotate(0); } }
+@keyframes i-parachute { 0% { transform: translateY(0); } 12% { transform: translateY(-28%); } 40% { transform: translateY(-20%) rotate(-6deg); } 70% { transform: translateY(-9%) rotate(6deg); } 100% { transform: translateY(0) rotate(0); } }

@@ -7,7 +7,7 @@ type Trio = [string, string, string];
 interface Bird {
   id: string;
   name: string;
-  kind: "parrot" | "cockatoo";
+  kind: "parrot" | "cockatoo" | "kiwi" | "tui"; // the kiwi and tūī have drawings of their own
   body: Trio; // light, mid, dark
   head?: Trio; // defaults to body
   belly: Pair;
@@ -78,6 +78,44 @@ export const BIRDS: Bird[] = [
     tail: ["#ffffff", "#e8e0e3"], beak: ["#f3ede3", "#d8cfc0", "#a99f8f"], lowerBeak: "#a99f8f", crest: ["#e5534b", "#f5c542", "#e5534b"],
     eyeRing: "#ffffff", highlight: "#ffffff", wingLines: "#cbbfc4",
   },
+  // New Zealand's parrots.
+  {
+    id: "kea", name: "Kea", kind: "parrot",
+    body: ["#9cae62", "#62793a", "#3c5220"], belly: ["#a9b972", "#71883f"], wing: ["#5f7a32", "#3a4f1e"], tip: ["#f07a34", "#c0481c"],
+    tail: ["#6f8a3e", "#3c5220"], beak: ["#8e9098", "#5a5c66", "#2e3036"], lowerBeak: "#2e3036", crest: null,
+    eyeRing: "#f2e6a0", highlight: "#cddb9e", wingLines: "#2c3d16",
+  },
+  {
+    id: "kaka", name: "Kākā", kind: "parrot",
+    head: ["#e2dccd", "#b9b09e", "#7e7564"], body: ["#a88c62", "#7a5f3c", "#4e3b22"], belly: ["#e0703f", "#a8401f"], wing: ["#7a5f3c", "#4a3820"],
+    tip: ["#e85e2e", "#a8361a"], tail: ["#7a5f3c", "#4e3b22"], beak: ["#8e9098", "#5a5c66", "#2e3036"], lowerBeak: "#2e3036", crest: null,
+    cheek: "#e0703f", eyeRing: "#f0e8d8", highlight: "#f4ecd8", wingLines: "#3a2b17",
+  },
+  {
+    id: "kakapo", name: "Kākāpō", kind: "parrot",
+    head: ["#e8e07e", "#bdbd4e", "#7f8a2e"], body: ["#bcd56c", "#80a33a", "#4f6e22"], belly: ["#dbe28c", "#aab950"], wing: ["#7fa33a", "#4a6620"],
+    tip: ["#5f7a2a", "#3e5418"], tail: ["#8aa848", "#566e26"], beak: ["#ece6d4", "#cbc1aa", "#8f8572"], lowerBeak: "#8f8572", crest: null,
+    eyeRing: "#f4efd8", highlight: "#f4f1b8", wingLines: "#33491a",
+  },
+  {
+    id: "kakariki", name: "Kākāriki", kind: "parrot",
+    body: ["#7fe07a", "#34b24a", "#1f7f35"], belly: ["#a8ec8a", "#5ccf5a"], wing: ["#2a9a40", "#176b2b"], tip: ["#3f7fe0", "#1f4fb0"],
+    tail: ["#4cc25a", "#2a8a3a"], beak: ["#cfd7e4", "#8f9bb0", "#55607a"], lowerBeak: "#55607a", crest: ["#e0322b", "#c4221b", "#e0322b"],
+    cheek: "#e0322b", eyeRing: "#ffe9a8", highlight: "#b6f0b8", wingLines: "#13602a",
+  },
+  {
+    // Up on a branch, which a kiwi has no business being, and not sure how it got there.
+    id: "kiwi", name: "Very confused kiwi", kind: "kiwi",
+    body: ["#a8835a", "#7a5a38", "#4e3820"], belly: ["#b89468", "#8a6a44"], wing: ["#7a5a38", "#4e3820"], tip: ["#7a5a38", "#4e3820"],
+    tail: ["#7a5a38", "#4e3820"], beak: ["#f1e4c6", "#dcc9a2", "#a8946c"], lowerBeak: "#a8946c", crest: null,
+    eyeRing: "#fff8e6", highlight: "#d2b48a", wingLines: "#3e2c18",
+  },
+  {
+    id: "tui", name: "Tūī", kind: "tui",
+    body: ["#3f6f8a", "#1f3550", "#0d1626"], belly: ["#3a5a5a", "#1a2a30"], wing: ["#5a3f7a", "#241a3a"], tip: ["#6fb0a0", "#2f6a62"],
+    tail: ["#22344a", "#0d1626"], beak: ["#2a2c32", "#16181c", "#08090b"], lowerBeak: "#08090b", crest: null,
+    eyeRing: "#16181c", highlight: "#8fd8c8", wingLines: "#5a8a7e",
+  },
 ];
 
 function crest(b: Bird): string {
@@ -108,7 +146,85 @@ function beak(b: Bird): string {
 <path d="M172 66 C 188 66 199 78 201 96" stroke="${shine}" stroke-width="3" stroke-linecap="round" fill="none" opacity="0.7"/>`;
 }
 
+// The kiwi: a round, fuzzy, wingless body with a long thin beak, on legs that are far too
+// sturdy for a branch. Lopsided eyes and question marks do the confusion.
+function kiwiSvg(b: Bird): string {
+  const [light, mid, dark] = b.body;
+  const fuzz = Array.from({ length: 34 }, (_, i) => {
+    const a = (i / 34) * Math.PI * 2;
+    const x = 124 + Math.cos(a) * 62, y = 140 + Math.sin(a) * 50;
+    return `M${x.toFixed(1)} ${y.toFixed(1)} l${(Math.cos(a) * 7 - 2).toFixed(1)} ${(Math.sin(a) * 6 + 3).toFixed(1)}`;
+  }).join(" ");
+  const tufts = [[96, 120], [116, 104], [140, 126], [104, 152], [128, 160], [150, 150], [88, 170], [118, 182], [146, 176]]
+    .map(([x, y]) => `M${x} ${y} q 5 5 2 11 M${x + 7} ${y - 2} q 5 5 2 11`).join(" ");
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><defs>
+<radialGradient id="kbody" cx="0.4" cy="0.3" r="0.8"><stop offset="0" stop-color="${light}"/><stop offset="0.6" stop-color="${mid}"/><stop offset="1" stop-color="${dark}"/></radialGradient>
+<linearGradient id="kbeak" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${b.beak[0]}"/><stop offset="1" stop-color="${b.beak[2]}"/></linearGradient>
+<linearGradient id="branch" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a87346"/><stop offset="1" stop-color="#6b4426"/></linearGradient></defs>
+<path d="M14 204 C 80 198 170 200 242 208 C 246 212 244 220 238 220 C 170 214 80 212 18 218 C 10 218 8 206 14 204 Z" fill="url(#branch)"/>
+<path d="M206 206 C 216 190 232 186 244 190 C 236 202 222 208 206 206 Z" fill="#3fa24f"/>
+<g stroke="#8a7a62" stroke-width="7" stroke-linecap="round" fill="none">
+<path d="M108 184 L 102 204"/><path d="M138 186 L 142 205"/></g>
+<g stroke="#8a7a62" stroke-width="4" stroke-linecap="round" fill="none">
+<path d="M102 204 l -12 2 M102 204 l 0 6 M102 204 l 10 2"/><path d="M142 205 l -10 2 M142 205 l 2 6 M142 205 l 12 1"/></g>
+<ellipse cx="124" cy="140" rx="64" ry="52" fill="url(#kbody)"/>
+<path d="${fuzz}" stroke="${dark}" stroke-width="3" stroke-linecap="round" fill="none"/>
+<path d="${tufts}" stroke="${b.wingLines}" stroke-width="2" stroke-linecap="round" fill="none" opacity="0.55"/>
+<g transform="rotate(16 170 110)">
+<circle cx="170" cy="108" r="30" fill="url(#kbody)"/>
+<path d="M194 116 C 214 124 230 146 238 176 C 239 180 235 182 233 178 C 224 152 210 134 190 126 Z" fill="url(#kbeak)"/>
+<path d="M229 168 l 4 7" stroke="${b.lowerBeak}" stroke-width="2" stroke-linecap="round"/>
+<circle cx="176" cy="100" r="8" fill="${b.eyeRing}"/>
+<circle cx="179" cy="97" r="3" fill="#16181c"/>
+<circle cx="162" cy="104" r="4.5" fill="${b.eyeRing}"/>
+<circle cx="161" cy="106" r="2" fill="#16181c"/>
+<path d="M168 86 q 6 -8 16 -2" stroke="${b.wingLines}" stroke-width="3" stroke-linecap="round" fill="none"/>
+<path d="M155 96 q 4 2 9 -1" stroke="${b.wingLines}" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+</g>
+<g font-family="Segoe UI, Arial, sans-serif" font-weight="800" fill="#f5c542" stroke="#6b4a10" stroke-width="1.5" paint-order="stroke">
+<text x="186" y="62" font-size="38" transform="rotate(14 186 62)">?</text>
+<text x="146" y="58" font-size="26" transform="rotate(-12 146 58)">?</text>
+<text x="212" y="84" font-size="20" transform="rotate(24 212 84)">?</text></g>
+<path d="M150 82 q -4 8 0 12 q 4 -4 0 -12 Z" fill="#8fd0ff" opacity="0.85"/>
+</svg>`;
+}
+
+// The tūī: a slim, glossy honeyeater whose dark feathers shine blue, green and purple, with two
+// white tufts at its throat and a lacy white collar.
+function tuiSvg(b: Bird): string {
+  const [light, mid, dark] = b.body;
+  const lace = Array.from({ length: 9 }, (_, i) => {
+    const x = 118 + i * 3.2, y = 96 + i * 1.6;
+    return `M${x.toFixed(1)} ${y.toFixed(1)} q -6 10 -2 20`;
+  }).join(" ");
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><defs>
+<linearGradient id="tbody" x1="0" y1="0" x2="0.6" y2="1"><stop offset="0" stop-color="${light}"/><stop offset="0.5" stop-color="${mid}"/><stop offset="1" stop-color="${dark}"/></linearGradient>
+<linearGradient id="twing" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${b.tip[0]}"/><stop offset="0.45" stop-color="${b.wing[0]}"/><stop offset="1" stop-color="${b.wing[1]}"/></linearGradient>
+<linearGradient id="ttail" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${b.tail[0]}"/><stop offset="1" stop-color="${b.tail[1]}"/></linearGradient>
+<linearGradient id="branch" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a87346"/><stop offset="1" stop-color="#6b4426"/></linearGradient></defs>
+<path d="M98 176 C 86 200 72 226 60 252 L 82 252 C 92 228 104 204 116 182 Z" fill="url(#ttail)"/>
+<path d="M14 204 C 80 198 170 200 242 208 C 246 212 244 220 238 220 C 170 214 80 212 18 218 C 10 218 8 206 14 204 Z" fill="url(#branch)"/>
+<path d="M206 206 C 216 190 232 186 244 190 C 236 202 222 208 206 206 Z" fill="#3fa24f"/>
+<g stroke="#16181c" stroke-width="3.5" stroke-linecap="round" fill="none">
+<path d="M122 186 L 118 204 M118 204 l -8 2 M118 204 l 8 1"/><path d="M138 184 L 138 203 M138 203 l -8 2 M138 203 l 8 1"/></g>
+<path d="M158 98 C 178 120 172 166 140 188 C 118 200 96 190 96 164 C 96 130 120 100 158 98 Z" fill="url(#tbody)"/>
+<path d="M118 112 C 98 126 94 160 104 186 C 120 182 134 160 138 136 C 140 122 132 112 118 112 Z" fill="url(#twing)"/>
+<path d="M108 134 C 114 146 116 158 114 170 M118 128 C 124 140 126 152 124 164" stroke="${b.wingLines}" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.7"/>
+<circle cx="150" cy="80" r="30" fill="url(#tbody)"/>
+<path d="M128 64 C 136 54 150 50 162 54" stroke="${b.highlight}" stroke-width="4" stroke-linecap="round" fill="none" opacity="0.55"/>
+<path d="${lace}" stroke="#f4f6f8" stroke-width="1.6" stroke-linecap="round" fill="none" opacity="0.85"/>
+<path d="M176 76 C 192 76 206 82 218 92 C 206 92 192 90 178 88 Z" fill="${b.beak[1]}"/>
+<path d="M178 86 C 192 88 204 90 214 92 C 202 96 190 96 180 92 Z" fill="${b.lowerBeak}"/>
+<circle cx="160" cy="76" r="6.5" fill="${b.eyeRing}"/>
+<circle cx="162" cy="74" r="2.2" fill="#ffffff"/>
+<g fill="#ffffff"><circle cx="164" cy="108" r="9"/><circle cx="173" cy="104" r="7.5"/><circle cx="160" cy="112" r="5" opacity="0.9"/><circle cx="176" cy="110" r="5" opacity="0.9"/></g>
+<g fill="#e6eaee" opacity="0.8"><circle cx="166" cy="104" r="3"/><circle cx="172" cy="100" r="2.4"/></g>
+</svg>`;
+}
+
 export function birdSvg(b: Bird): string {
+  if (b.kind === "tui") return tuiSvg(b);
+  if (b.kind === "kiwi") return kiwiSvg(b);
   const head = b.head ?? b.body;
   const grad = (id: string, stops: string[], x2 = "0", y2 = "1") =>
     `<linearGradient id="${id}" x1="0" y1="0" x2="${x2}" y2="${y2}">${stops.map((c, i) => `<stop offset="${stops.length === 3 ? [0, 0.55, 1][i] : i}" stop-color="${c}"/>`).join("")}</linearGradient>`;

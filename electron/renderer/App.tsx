@@ -144,6 +144,82 @@ export function Parrot({ size = 48 }: { size?: number; blink?: boolean }) {
   return <img src={BIRD_URLS[id]} width={size} height={size} alt={bird?.name ?? "Perch parrot"} draggable={false} style={{ display: "block" }} />;
 }
 
+// A parrot with opinions: now and then it cocks its head or hops on its own, and a click makes it
+// squawk something cheeky.
+const SQUAWKS = [
+  "Squawk! Ship it!",
+  "I bite things to check they're real metal.",
+  "Who's a pretty coder? You are.",
+  "Crackers first, then code.",
+  "I saw that typo.",
+  "Feisty, not grumpy.",
+  "Is that a bug? I'll eat it.",
+  "Pieces of eight! Er, bytes.",
+  "Polly wants a passing test.",
+  "Don't make me peck the compiler.",
+];
+
+// The flightless birds come down from the branch by parachute: the kākāpō spreads its stubby
+// wings, as real ones do, and the kiwi, having no wings worth spreading, brings a parachute.
+const FLIGHTLESS = new Set(["kiwi", "kakapo"]);
+
+function Chute({ bird }: { bird: string }) {
+  if (bird === "kiwi") {
+    return (
+      <svg className="chute" viewBox="0 0 40 30" aria-hidden>
+        <path d="M2 14 Q 20 -6 38 14 Z" fill="#e5534b" />
+        <path d="M11 14 Q 14 2 20 1 Q 26 2 29 14 Z" fill="#fff6e8" />
+        <path d="M17 14 Q 18 3 20 1 Q 22 3 23 14 Z" fill="#e5534b" />
+        <path d="M2 14 L 20 30 M11 14 L 20 30 M29 14 L 20 30 M38 14 L 20 30" stroke="#d8d2c4" strokeWidth="0.8" />
+      </svg>
+    );
+  }
+  const wing = <svg viewBox="0 0 30 14"><path d="M30 7 C 20 0 6 0 0 6 C 8 8 18 12 30 10 Z" fill="#80a33a" /><path d="M24 6 L 10 4 M22 9 L 8 7" stroke="#4f6e22" strokeWidth="1" /></svg>;
+  return (
+    <>
+      <span className="glide l" aria-hidden>{wing}</span>
+      <span className="glide r" aria-hidden>{wing}</span>
+    </>
+  );
+}
+
+function CheekyParrot({ size }: { size: number }) {
+  const [say, setSay] = useState<string | null>(null);
+  const [fidget, setFidget] = useState("");
+  const [bird, setBird] = useState(mascot.get());
+  useEffect(() => mascot.subscribe(setBird), []);
+  const last = useRef(-1);
+  useEffect(() => {
+    const i = setInterval(() => {
+      const moves = ["idle-cock", "idle-hop", "idle-ruffle", ...(FLIGHTLESS.has(mascot.get()) ? ["idle-parachute", "idle-parachute"] : [])];
+      const m = moves[Math.floor(Math.random() * moves.length)];
+      setFidget(m);
+      setTimeout(() => setFidget(""), m === "idle-parachute" ? 2600 : 1200);
+    }, 7000 + Math.random() * 4000);
+    return () => clearInterval(i);
+  }, []);
+  useEffect(() => {
+    if (!say) return;
+    const t = setTimeout(() => setSay(null), 2600);
+    return () => clearTimeout(t);
+  }, [say]);
+  const squawk = () => {
+    let n = Math.floor(Math.random() * SQUAWKS.length);
+    if (n === last.current) n = (n + 1) % SQUAWKS.length;
+    last.current = n;
+    setSay(SQUAWKS[n]);
+    setFidget("idle-squawk");
+    setTimeout(() => setFidget(""), 600);
+  };
+  return (
+    <button className={`cheeky ${fidget}`} onClick={squawk} title="Poke the parrot">
+      {say && <span className="squawk" key={say}>{say}</span>}
+      {fidget === "idle-parachute" && <Chute bird={bird} />}
+      <Parrot size={size} />
+    </button>
+  );
+}
+
 // Choose the mascot: click the bird at the top of the sidebar.
 function MascotPicker({ onClose }: { onClose: () => void }) {
   const [id, setId] = useState(mascot.get());
@@ -173,7 +249,7 @@ function MascotPicker({ onClose }: { onClose: () => void }) {
 // The parrot keeps you company while Perch works. What it does depends on what Perch is doing:
 // a curious head tilt while thinking, a chatty bob while writing, and a rotating repertoire of
 // dance moves while tools run. All CSS transforms, so it costs nothing.
-const DANCES = ["bob", "hop", "wiggle", "spin", "flap", "moonwalk", "sway", "headbang", "tiptoe"];
+const DANCES = ["bob", "hop", "wiggle", "spin", "flap", "moonwalk", "sway", "headbang", "tiptoe", "strut", "peck", "puff", "backflip"];
 const QUIPS: Record<string, string[]> = {
   thinking: ["Pondering…", "Tilting head thoughtfully…", "Consulting the flock…", "Having a think…"],
   writing: ["Squawking out an answer…", "Writing it up…", "Choosing words carefully…"],
@@ -193,6 +269,8 @@ const QUIPS: Record<string, string[]> = {
 
 function WorkingParrot({ startedAt, activity }: { startedAt: number; activity: "thinking" | "writing" | "tools" }) {
   const [tick, setTick] = useState(0);
+  const [bird, setBird] = useState(mascot.get());
+  useEffect(() => mascot.subscribe(setBird), []);
   useEffect(() => {
     const i = setInterval(() => setTick((x) => x + 1), 1000);
     return () => clearInterval(i);
@@ -200,13 +278,15 @@ function WorkingParrot({ startedAt, activity }: { startedAt: number; activity: "
   const secs = Math.floor((Date.now() - startedAt) / 1000);
   // A new move every 2.5 seconds, never the same one twice in a row.
   const step = Math.floor(tick / 2.5);
-  const move = activity === "thinking" ? "tilt" : activity === "writing" ? "chatter" : DANCES[(step * 7 + Math.floor(startedAt / 1000)) % DANCES.length];
+  const dance = FLIGHTLESS.has(bird) && step % 3 === 0 ? "parachute" : DANCES[(step * 7 + Math.floor(startedAt / 1000)) % DANCES.length];
+  const move = activity === "thinking" ? "tilt" : activity === "writing" ? "chatter" : dance;
   const quips = QUIPS[activity];
   const quip = quips[Math.floor(tick / 4 + startedAt / 1000) % quips.length];
   return (
     <div className="working">
       <span className={`dancer move-${move}`} key={move + step}>
-        <Parrot size={26} />
+        {move === "parachute" && <Chute bird={bird} />}
+        <Parrot size={44} />
         {move === "sway" && (
           <>
             <span className="note n1">♪</span>
@@ -1043,7 +1123,7 @@ export function App() {
       <nav className="sidebar">
         <div className="brand">
           <button className="brand-bird" onClick={() => setShowMascots(true)} title="Choose your bird">
-            <Parrot size={34} />
+            <Parrot size={48} />
           </button>
           <span>Perch</span>
         </div>
@@ -1134,7 +1214,7 @@ export function App() {
 
       {!snap ? (
         <main className="empty">
-          <Parrot size={170} />
+          <CheekyParrot size={210} />
           <h1>Perch</h1>
           <p>A coding agent for DeepSeek and friends.</p>
           <p className="credit">© Feisty Parrot Studios · MIT licence</p>
@@ -1205,7 +1285,7 @@ export function App() {
               <div className="transcript">
                 {snap.history.length === 0 && (
                   <div className="hello">
-                    <Parrot size={64} />
+                    <CheekyParrot size={110} />
                     <p>What shall we work on?</p>
                   </div>
                 )}

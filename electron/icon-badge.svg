@@ -5,8 +5,10 @@
       <stop offset="1" stop-color="#10231a"/>
     </radialGradient>
   </defs>
+  <clipPath id="badge"><rect x="4" y="4" width="248" height="248" rx="56"/></clipPath>
   <rect x="4" y="4" width="248" height="248" rx="56" fill="url(#bg)"/>
-  <g transform="translate(20 12) scale(0.86)">
+  <!-- The parrot fills the badge, so it still reads at taskbar size; the branch runs off the edges. -->
+  <g clip-path="url(#badge)"><g transform="translate(-44 -2) scale(1.2)">
   <defs>
     <linearGradient id="body" x1="0" y1="0" x2="0.4" y2="1">
       <stop offset="0" stop-color="#6fdc7c"/>
@@ -92,5 +94,5 @@
   <circle cx="150" cy="74" r="8" fill="#16181c"/>
   <circle cx="153" cy="70" r="3" fill="#ffffff"/>
   <circle cx="147" cy="78" r="1.4" fill="#ffffff" opacity="0.8"/>
-</g>
+</g></g>
 </svg>

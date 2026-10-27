@@ -15,8 +15,10 @@ const badge = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
       <stop offset="1" stop-color="#10231a"/>
     </radialGradient>
   </defs>
+  <clipPath id="badge"><rect x="4" y="4" width="248" height="248" rx="56"/></clipPath>
   <rect x="4" y="4" width="248" height="248" rx="56" fill="url(#bg)"/>
-  <g transform="translate(20 12) scale(0.86)">${inner}</g>
+  <!-- The parrot fills the badge, so it still reads at taskbar size; the branch runs off the edges. -->
+  <g clip-path="url(#badge)"><g transform="translate(-44 -2) scale(1.2)">${inner}</g></g>
 </svg>`;
 
 const render = (svg, size) => new Resvg(svg, { fitTo: { mode: "width", value: size } }).render().asPng();
