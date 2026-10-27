@@ -49,6 +49,7 @@ export interface ChatRequest {
   signal?: AbortSignal;
   maxTokens?: number;
   sessionId?: string;
+  thinking?: Thinking; // reasoning effort, for providers that take one
   onEvent?: (e: StreamEvent) => void;
 }
 
@@ -102,7 +103,9 @@ async function chatOnce(req: ChatRequest): Promise<Completion> {
     messages: req.messages.map(toWire(model)),
     stream: true,
     stream_options: { include_usage: true },
-    max_tokens: req.maxTokens ?? maxOutput(model),
+    // Max effort thinks at length, and thinking counts against max_tokens, so allow more room.
+    max_tokens: req.maxTokens ?? (req.thinking === "max" ? Math.min(model.output, 131_072) : maxOutput(model)),
+    ...thinkingParams(provider, model, req.thinking),
     ...provider.extraBody,
   };
   if (req.tools?.length) body.tools = req.tools;
@@ -262,4 +265,13 @@ export function estimateTokens(messages: Message[]): number {
     }
   }
   return Math.ceil(chars / 3.5);
+}
+
+export type Thinking = "off" | "low" | "high" | "max";
+
+// DeepSeek takes reasoning_effort (none, low, high, max); "none" switches thinking off.
+// Other providers get nothing, so they keep their own defaults.
+function thinkingParams(provider: Provider, model: ModelInfo, thinking?: Thinking): Record<string, unknown> {
+  if (!thinking || !model.reasoning || provider.id !== "deepseek") return {};
+  return { reasoning_effort: thinking === "off" ? "none" : thinking };
 }

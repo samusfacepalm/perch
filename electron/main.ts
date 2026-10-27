@@ -65,6 +65,7 @@ function snapshot(agent: Agent) {
     usage: s.usage,
     compactions: s.compactions,
     permissionMode: s.permissionMode ?? config.defaultMode,
+    thinking: s.thinking ?? "high",
     keepGoing: !!agent.opts.autoContinue,
     compactAt: Math.min(context * config.compactAt, config.compactTokens),
     contextTokens: agent.contextTokens,
@@ -331,6 +332,13 @@ function registerIpc() {
     a.session.scratch = false;
     saveSessionSoon(a.session);
     return snapshot(a);
+  });
+
+  ipcMain.handle("session:setThinking", (_e, id: string, level: "off" | "low" | "high" | "max") => {
+    const a = getAgent(id);
+    a.session.thinking = level;
+    saveSessionSoon(a.session);
+    return level;
   });
 
   ipcMain.handle("session:setMode", (_e, id: string, mode: "ask" | "edits" | "all") => {

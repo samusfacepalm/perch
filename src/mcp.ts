@@ -7,6 +7,7 @@
 //   - read, glob, grep, list, todowrite: always allowed
 //   - write and edit: only with allow_edits, and only inside the working folder
 //   - bash: only allowlisted commands, or any command with allow_bash
+//   - play: only with allow_play (it launches the game)
 // The MCP client (Claude Code) shows its user each call before it runs.
 
 import path from "node:path";
@@ -35,6 +36,7 @@ The agent sees nothing of your conversation. Write the prompt as a complete brie
         model: { type: "string", description: "provider/model, e.g. deepseek/deepseek-flash (cheapest) or deepseek/deepseek-v4-pro. Default: Perch's configured model." },
         allow_edits: { type: "boolean", description: "Allow write and edit inside cwd. Default false (read-only)." },
         allow_bash: { type: "boolean", description: "Allow any shell command. Default false: only allowlisted read-only commands such as git status." },
+        allow_play: { type: "boolean", description: "Allow the play tool, which launches the game, screenshots it and reads its log. Default false." },
         max_steps: { type: "number", description: "Step limit for this run. Default 150." },
       },
       required: ["prompt", "cwd"],
@@ -84,11 +86,14 @@ async function delegate(args: any) {
       ask: async (tool, summary, a) => {
         if ((tool === "write" || tool === "edit") && args.allow_edits && typeof a.path === "string" && inside(cwd, a.path)) return { allow: true };
         if (tool === "bash" && args.allow_bash) return { allow: true };
+        if (tool === "play" && args.allow_play) return { allow: true };
         denied.push(`${tool} ${summary}`.slice(0, 160));
         const why =
           tool === "bash"
             ? "Shell commands beyond the read-only allowlist are not permitted in this delegated run."
-            : args.allow_edits
+            : tool === "play"
+              ? "Running the game is not permitted in this delegated run."
+              : args.allow_edits
               ? "Edits outside the working folder are not permitted."
               : "This delegated run is read-only.";
         return { allow: false, feedback: `${why} Do what you can without it, and list what is left in your report.` };

@@ -26,6 +26,7 @@ export interface Session {
   compactions: number;
   summary?: string; // latest compaction summary, folded into the next one
   permissionMode?: "ask" | "edits" | "all"; // what runs without asking (see Agent.permit)
+  thinking?: "off" | "low" | "high" | "max"; // reasoning effort; unset means the provider default
   usage: SessionUsage;
 }
 

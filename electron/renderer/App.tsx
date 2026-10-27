@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Marked } from "marked";
 import type { PerchApi } from "../preload.js";
-import parrotSvg from "../parrot.svg";
+import { BIRDS, BIRD_URLS, mascot } from "./mascots.js";
 import { Composer } from "./Composer.js";
 import { Lightbox, ShotsPanel, Thumbs } from "./gallery.js";
 import { PlayButton, PlayCard, type PlayResult } from "./play.js";
@@ -48,6 +48,7 @@ interface Snapshot {
   compactAt: number;
   permissionMode?: "ask" | "edits" | "all";
   keepGoing?: boolean;
+  thinking?: "off" | "low" | "high" | "max";
   contextTokens: number;
   contextWindow: number;
   busy: boolean;
@@ -58,6 +59,7 @@ interface ModelChoice {
   provider: string;
   hasKey: boolean;
   vision?: boolean;
+  thinkingLevels?: boolean;
 }
 interface KeyInfo {
   id: string;
@@ -104,6 +106,7 @@ interface Live {
   meta: Record<string, ToolMeta>;
   startedAt: number;
   shotsKey?: number; // bumps when new images arrive, to refresh the gallery
+  statusLog?: string[]; // status messages this session, kept for verbose mode
 }
 
 // ---------- markdown ----------
@@ -135,7 +138,36 @@ function MD({ text }: { text: string }) {
 
 // The parrot is vector art in electron/parrot.svg; scripts/icon.mjs builds the app icon from it.
 export function Parrot({ size = 48 }: { size?: number; blink?: boolean }) {
-  return <img src={parrotSvg} width={size} height={size} alt="Perch parrot" draggable={false} style={{ display: "block" }} />;
+  const [id, setId] = useState(mascot.get());
+  useEffect(() => mascot.subscribe(setId), []);
+  const bird = BIRDS.find((b) => b.id === id);
+  return <img src={BIRD_URLS[id]} width={size} height={size} alt={bird?.name ?? "Perch parrot"} draggable={false} style={{ display: "block" }} />;
+}
+
+// Choose the mascot: click the bird at the top of the sidebar.
+function MascotPicker({ onClose }: { onClose: () => void }) {
+  const [id, setId] = useState(mascot.get());
+  useEffect(() => mascot.subscribe(setId), []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  return (
+    <div className="mascot-back" onClick={onClose}>
+      <div className="mascot-picker" onClick={(e) => e.stopPropagation()}>
+        <div className="mascot-title">Choose your bird</div>
+        <div className="mascot-grid">
+          {BIRDS.map((b) => (
+            <button key={b.id} className={`mascot ${id === b.id ? "on" : ""}`} onClick={() => mascot.set(b.id)} title={b.name}>
+              <img src={BIRD_URLS[b.id]} alt="" />
+              <span>{b.name}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // The parrot keeps you company while Perch works. What it does depends on what Perch is doing:
@@ -250,12 +282,13 @@ function DiffView({ diff }: { diff: string }) {
   );
 }
 
-function ToolCard({ call, output, meta }: { call: ToolCall; output?: string; meta?: ToolMeta }) {
+function ToolCard({ call, output, meta, verbose }: { call: ToolCall; output?: string; meta?: ToolMeta; verbose?: boolean }) {
   const args = parseArgs(call.function.arguments);
   const name = call.function.name;
   const error = meta?.error ?? (output ? /^Error|declined/.test(output) : false);
   const running = output === undefined;
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(!!verbose);
+  useEffect(() => setOpen(!!verbose), [verbose]);
   if (name === "todowrite") return null;
   const hasBody = !!(meta?.diff || output);
   const autoOpen = !!meta?.diff && !open;
@@ -269,6 +302,7 @@ function ToolCard({ call, output, meta }: { call: ToolCall; output?: string; met
         {hasBody && <span className="chev">{open ? "▾" : "▸"}</span>}
       </button>
       {args.description && name === "bash" && <div className="tdesc">{args.description}</div>}
+      {verbose && <pre className="targs">{JSON.stringify(args, null, 2)}</pre>}
       {(autoOpen || open) && meta?.diff && <DiffView diff={meta.diff} />}
       {meta?.images?.length ? <Thumbs paths={meta.images} /> : null}
       {open && output && !meta?.diff && <pre className="tout">{output}</pre>}
@@ -290,6 +324,40 @@ const UserMsg = React.memo(function UserMsg({ text, images }: { text: string; im
   );
 });
 
+const words = (s: string) => s.trim().split(/\s+/).filter(Boolean).length;
+
+// A finished reply's reasoning: folded to one line, or open in verbose mode.
+const ThoughtBlock = React.memo(function ThoughtBlock({ text, verbose }: { text: string; verbose?: boolean }) {
+  const [open, setOpen] = useState(!!verbose);
+  useEffect(() => setOpen(!!verbose), [verbose]);
+  return (
+    <div className={`thought ${open ? "open" : ""}`}>
+      <button className="thought-head" onClick={() => setOpen((o) => !o)}>
+        <span className="chev">{open ? "▾" : "▸"}</span> Thought for {words(text).toLocaleString()} words
+      </button>
+      {open && <div className="thought-body">{text}</div>}
+    </div>
+  );
+});
+
+// Reasoning as it streams in, scrolled to the newest line.
+function ThinkingBox({ text }: { text: string }) {
+  const box = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (box.current) box.current.scrollTop = box.current.scrollHeight;
+  }, [text]);
+  return (
+    <div className="thought open live">
+      <div className="thought-head">
+        <span className="thinking-dot" /> Thinking… {words(text).toLocaleString()} words
+      </div>
+      <div className="thought-body" ref={box}>
+        {text}
+      </div>
+    </div>
+  );
+}
+
 const AssistantMsg = React.memo(function AssistantMsg({ text }: { text: string }) {
   return (
     <div className="msg assistant">
@@ -302,7 +370,7 @@ const PAGE = 150;
 
 // Re-renders only when the history or tool metadata changes, never for streamed text.
 // Long sessions show their latest items, with a button to load earlier ones.
-const Transcript = React.memo(function Transcript({ history, meta }: { history: Message[]; meta: Record<string, ToolMeta> }) {
+const Transcript = React.memo(function Transcript({ history, meta, verbose }: { history: Message[]; meta: Record<string, ToolMeta>; verbose: boolean }) {
   const [shown, setShown] = useState(PAGE);
   const items = useMemo(() => {
     const results = new Map<string, string>();
@@ -313,16 +381,17 @@ const Transcript = React.memo(function Transcript({ history, meta }: { history: 
         if (m.content.startsWith("[compacted]")) out.push({ key: `c${i}`, node: () => <div className="compacted">Earlier conversation summarised</div> });
         else out.push({ key: `u${i}`, node: () => <UserMsg text={m.content} images={m.images} /> });
       } else if (m.role === "assistant") {
+        if (m.reasoning_content?.trim()) out.push({ key: `t${i}`, node: () => <ThoughtBlock text={m.reasoning_content!} verbose={verbose} /> });
         if (m.content.trim()) out.push({ key: `a${i}`, node: () => <AssistantMsg text={m.content} /> });
         for (const c of m.tool_calls ?? []) {
           if (c.function.name === "todowrite") continue;
           const output = results.get(c.id);
-          out.push({ key: c.id, node: (mt) => <MemoToolCard call={c} output={output} meta={mt[c.id]} /> });
+          out.push({ key: c.id, node: (mt) => <MemoToolCard call={c} output={output} meta={mt[c.id]} verbose={verbose} /> });
         }
       }
     });
     return out;
-  }, [history]);
+  }, [history, verbose]);
   const start = Math.max(0, items.length - shown);
   return (
     <>
@@ -339,10 +408,17 @@ const Transcript = React.memo(function Transcript({ history, meta }: { history: 
 });
 
 // The live tail: streamed reply and thinking. The only part that changes while a reply streams.
-function LiveTail({ live }: { live: Live }) {
+function LiveTail({ live, verbose }: { live: Live; verbose: boolean }) {
   return (
     <>
-      {live.snap.busy && live.thinking && !live.stream && <div className="thinking">{live.thinking.replace(/\s+/g, " ").slice(-300)}</div>}
+      {verbose && live.statusLog?.length ? (
+        <div className="status-log">
+          {live.statusLog.map((s, i) => (
+            <div key={i}>{s}</div>
+          ))}
+        </div>
+      ) : null}
+      {live.snap.busy && live.thinking && !live.stream && <ThinkingBox text={live.thinking} />}
       {live.stream && (
         <div className="msg assistant streaming">
           <StreamText text={live.stream} />
@@ -834,6 +910,21 @@ function KeysDialog({ onClose, onChanged }: { onClose: () => void; onChanged: ()
 export function App() {
   const [models, setModels] = useState<ModelChoice[]>([]);
   const [showKeys, setShowKeys] = useState(false);
+  const [showMascots, setShowMascots] = useState(false);
+  // Verbose: thinking and tool calls open, arguments shown, status messages kept. Remembered.
+  const [verbose, setVerboseState] = useState(() => {
+    try {
+      return localStorage.getItem("perch.verbose") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const setVerbose = (v: boolean) => {
+    setVerboseState(v);
+    try {
+      localStorage.setItem("perch.verbose", v ? "1" : "0");
+    } catch {}
+  };
   const [plays, setPlays] = useState<Record<string, PlayResult | undefined>>({});
   const [navTab, setNavTab] = useState<"sessions" | "projects">("sessions");
   const [projects, setProjects] = useState<{ path: string; name: string; sources: string[]; lastUsed?: string }[]>([]);
@@ -863,7 +954,7 @@ export function App() {
         const snap = l.snap;
         switch (e.type) {
           case "stream":
-            return { ...l, stream: l.stream + (e.text ?? ""), thinking: e.reasoning ? (l.thinking + e.reasoning).slice(-600) : l.thinking };
+            return { ...l, stream: l.stream + (e.text ?? ""), thinking: e.reasoning ? (l.thinking + e.reasoning).slice(-40_000) : l.thinking };
           case "message":
             return { ...l, stream: "", thinking: "", snap: { ...snap, history: [...snap.history, e.message] } };
           case "toolStart":
@@ -873,7 +964,7 @@ export function App() {
           case "todos":
             return { ...l, snap: { ...snap, todos: e.todos } };
           case "status":
-            return { ...l, status: e.text };
+            return { ...l, status: e.text, statusLog: e.text ? [...(l.statusLog ?? []), `${new Date().toLocaleTimeString()}  ${e.text}`].slice(-50) : l.statusLog };
           case "error":
             return { ...l, error: e.text };
           case "ask":
@@ -946,9 +1037,12 @@ export function App() {
     <div className="app">
       <nav className="sidebar">
         <div className="brand">
-          <Parrot size={34} />
+          <button className="brand-bird" onClick={() => setShowMascots(true)} title="Choose your bird">
+            <Parrot size={34} />
+          </button>
           <span>Perch</span>
         </div>
+        {showMascots && <MascotPicker onClose={() => setShowMascots(false)} />}
         <button className="new" onClick={() => create(true)}>
           + New session in a folder…
         </button>
@@ -1069,6 +1163,9 @@ export function App() {
               )}
             </div>
             <div className="controls">
+              <button className={`chip ${verbose ? "chip-on" : ""}`} onClick={() => setVerbose(!verbose)} title="Verbose: show thinking and tool calls in full, with their arguments, and keep status messages">
+                verbose
+              </button>
               <PlayButton
                 sessionId={snap.id}
                 cwd={snap.cwd}
@@ -1107,8 +1204,8 @@ export function App() {
                     <p>What shall we work on?</p>
                   </div>
                 )}
-                <Transcript history={snap.history} meta={live!.meta} />
-                <LiveTail live={live!} />
+                <Transcript history={snap.history} meta={live!.meta} verbose={verbose} />
+                <LiveTail live={live!} verbose={verbose} />
                 {live!.error && <div className="error">{live!.error}</div>}
               </div>
             </div>
@@ -1135,6 +1232,11 @@ export function App() {
               onAuto={(on) => {
                 setAuto((a) => ({ ...a, [snap.id]: on }));
                 api.setAuto(snap.id, on);
+              }}
+              thinking={snap.thinking ?? "high"}
+              onThinking={(level) => {
+                update(snap.id, (l) => ({ ...l, snap: { ...l.snap, thinking: level } }));
+                api.setThinking(snap.id, level);
               }}
               mode={snap.permissionMode ?? "ask"}
               onMode={(mode) => {

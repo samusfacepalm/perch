@@ -176,6 +176,7 @@ export class Agent {
         tools: last ? undefined : this.toolSpecs(),
         signal,
         sessionId: this.session.id,
+        thinking: this.session.thinking,
         onEvent: (e) => {
           if (e.type === "retry") this.events.onStatus?.(`${provider.name} error, retry ${e.attempt} in ${Math.round(e.waitMs / 1000)}s: ${e.error.slice(0, 120)}`);
           this.events.onStream?.(e);
@@ -364,6 +365,7 @@ export class Agent {
         model: main.model,
         signal,
         sessionId: this.session.id,
+        thinking: this.session.thinking,
         tools: this.toolSpecs(),
         messages: [...this.session.messages, { role: "user", content: `${prior}${COMPACT_PROMPT}\n\nDo not call any tools. Reply with the summary only.` }],
       });
@@ -383,6 +385,7 @@ export class Agent {
         model,
         signal,
         sessionId: this.session.id,
+        thinking: this.session.thinking,
         messages: [
           { role: "system", content: COMPACT_PROMPT },
           { role: "user", content: `${prior}<conversation>\n${clip(transcript, model.context * 3 - 40_000)}\n</conversation>` },
@@ -487,7 +490,10 @@ const DESTRUCTIVE = [
   /\b(killall|pkill)\b/i,
   /Browser\.close|Target\.closeTarget|\/json\/(close|version)/i, // closing browsers over the debugging protocol
   /\bgit\s+(push\s+.*(--force|-f\b)|reset\s+--hard|clean\s+-\w*[fdx]|checkout\s+--\s+\.|branch\s+-D|stash\s+(drop|clear))/i,
-  /\b(format|diskpart|mkfs|shutdown|Stop-Computer|Restart-Computer)\b/i,
+  // Formatting a disk, not Format-Table or --format=...: the format command takes a drive letter.
+  /(^|[;&|(]\s*|\/[ck]\s+)format(\.com)?\s+[a-z]:|\b(Format-Volume|Clear-Disk|diskpart)\b|\bmkfs(\.\w+)?\s/i,
+  // Shutting down the PC, not `wsl --shutdown`: the shutdown command with /s, /r or /p.
+  /(^|[;&|(]\s*)shutdown(\.exe)?\s+[-/][srpf]\b|\b(Stop-Computer|Restart-Computer)\b/i,
   /\b(drop\s+(table|database)|truncate\s+table)\b/i,
   />\s*\/dev\/sd|\bdd\s+if=/i,
 ];

@@ -310,6 +310,7 @@ export interface ModelChoice {
   provider: string;
   hasKey: boolean;
   vision: boolean;
+  thinkingLevels: boolean; // the thinking level can be chosen
 }
 
 export function modelChoices(config: PerchConfig): ModelChoice[] {
@@ -320,6 +321,7 @@ export function modelChoices(config: PerchConfig): ModelChoice[] {
       provider: p.name,
       hasKey: !!p.apiKey || !!p.local,
       vision: !!m.vision,
+      thinkingLevels: p.id === "deepseek" && m.reasoning, // see thinkingParams in provider.ts
     })),
   );
 }

@@ -13,7 +13,12 @@ export interface ModelChoice {
   provider: string;
   hasKey: boolean;
   vision?: boolean;
+  thinkingLevels?: boolean;
 }
+
+export type Thinking = "off" | "low" | "high" | "max";
+const THINKING: Thinking[] = ["off", "low", "high", "max"];
+const THINKING_HELP = "Thinking: how long the model reasons before answering. Off is fastest and cheapest; Max takes longest and suits hard problems.";
 
 export type Mode = "ask" | "edits" | "all";
 const MODES: Mode[] = ["ask", "edits", "all"];
@@ -37,6 +42,8 @@ interface Props {
   onAuto: (on: boolean) => void;
   mode: Mode;
   onMode: (mode: Mode) => void;
+  thinking: Thinking;
+  onThinking: (level: Thinking) => void;
   contextTokens: number;
   contextWindow: number;
   compactAt: number;
@@ -202,6 +209,14 @@ export function Composer(p: Props) {
               <path d="M2 4l3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </label>
+          {current?.thinkingLevels && (
+            <button className={`pill think-pill think-${p.thinking}`} onClick={() => p.onThinking(THINKING[(THINKING.indexOf(p.thinking) + 1) % THINKING.length])} title={THINKING_HELP + "\nClick to change."}>
+              <svg width="12" height="12" viewBox="0 0 12 12">
+                <path d="M6 1.2a3.6 3.6 0 0 0-2.1 6.5v1.4h4.2V7.7A3.6 3.6 0 0 0 6 1.2zM4.6 10.6h2.8" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Thinking: {p.thinking === "off" ? "off" : p.thinking}
+            </button>
+          )}
           <button
             className={`pill mode-pill mode-${p.mode}`}
             onClick={() => p.onMode(MODES[(MODES.indexOf(p.mode) + 1) % MODES.length])}

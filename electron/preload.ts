@@ -25,6 +25,7 @@ const api = {
   setCwd: (id: string, cwd: string) => ipcRenderer.invoke("session:setCwd", id, cwd),
   setAuto: (id: string, on: boolean) => ipcRenderer.invoke("session:setAuto", id, on),
   setMode: (id: string, mode: "ask" | "edits" | "all") => ipcRenderer.invoke("session:setMode", id, mode),
+  setThinking: (id: string, level: "off" | "low" | "high" | "max") => ipcRenderer.invoke("session:setThinking", id, level),
   pickFolder: () => ipcRenderer.invoke("folder:pick"),
   openFolder: (dir: string) => ipcRenderer.invoke("folder:open", dir),
   send: (id: string, text: string, images?: string[]) => ipcRenderer.invoke("agent:send", id, text, images),
