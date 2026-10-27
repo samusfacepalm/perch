@@ -64,7 +64,7 @@ function snapshot(agent: Agent) {
     todos: s.todos,
     usage: s.usage,
     compactions: s.compactions,
-    permissionMode: s.permissionMode ?? "ask",
+    permissionMode: s.permissionMode ?? config.defaultMode,
     keepGoing: !!agent.opts.autoContinue,
     compactAt: Math.min(context * config.compactAt, config.compactTokens),
     contextTokens: agent.contextTokens,
@@ -336,6 +336,9 @@ function registerIpc() {
   ipcMain.handle("session:setMode", (_e, id: string, mode: "ask" | "edits" | "all") => {
     const a = getAgent(id);
     a.session.permissionMode = mode;
+    // Remembered: new sessions, and old ones that never chose, start in the last mode picked.
+    config.defaultMode = mode;
+    saveSetting("defaultMode", mode);
     saveSessionSoon(a.session);
     return mode;
   });

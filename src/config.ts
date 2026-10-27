@@ -51,6 +51,7 @@ export interface PerchConfig {
   // Idle compaction: a session left alone this long, with at least this much context, is
   // summarised (by the app's hourly check, or when you come back to it). DeepSeek's cache has
   // expired by then, so the next message would otherwise pay full price for the whole context.
+  defaultMode: "ask" | "edits" | "all"; // permission mode for sessions that haven't picked one; the last one chosen
   idleCompact: boolean;
   idleCompactHours: number;
   idleCompactMinTokens: number;
@@ -280,6 +281,7 @@ export function loadConfig(): PerchConfig {
     maxSteps: own.maxSteps ?? 400,
     compactAt: own.compactAt ?? 0.8,
     compactTokens: own.compactTokens ?? 200_000,
+    defaultMode: own.defaultMode ?? "ask",
     idleCompact: own.idleCompact ?? true,
     idleCompactHours: own.idleCompactHours ?? 2.5,
     idleCompactMinTokens: own.idleCompactMinTokens ?? 500_000,

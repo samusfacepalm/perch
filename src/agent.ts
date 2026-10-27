@@ -291,7 +291,7 @@ export class Agent {
     if (rule === "allow") return { allow: true };
     // Session permission modes: "edits" lets file changes through, "all" lets everything
     // through except shell commands that look destructive, which still ask.
-    const mode = this.session.permissionMode ?? "ask";
+    const mode = this.session.permissionMode ?? this.config.defaultMode;
     if (mode === "all" && !(tool.name === "bash" && looksDestructive(String(args.command ?? "")))) return { allow: true };
     if ((mode === "edits" || mode === "all") && (tool.name === "write" || tool.name === "edit")) return { allow: true };
     if (tool.name === "bash") {
