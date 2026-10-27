@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <radialGradient id="bg" cx="0.35" cy="0.25" r="0.9">
+      <stop offset="0" stop-color="#2b5a3c"/>
+      <stop offset="1" stop-color="#10231a"/>
+    </radialGradient>
+  </defs>
+  <rect x="4" y="4" width="248" height="248" rx="56" fill="url(#bg)"/>
+  <g transform="translate(20 12) scale(0.86)">
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#6fdc7c"/>
+      <stop offset="0.55" stop-color="#34b24a"/>
+      <stop offset="1" stop-color="#1f7f35"/>
+    </linearGradient>
+    <linearGradient id="belly" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9be89a"/>
+      <stop offset="1" stop-color="#4cc25a"/>
+    </linearGradient>
+    <linearGradient id="wing" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a9a40"/>
+      <stop offset="1" stop-color="#176b2b"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5aa2ff"/>
+      <stop offset="1" stop-color="#2459d6"/>
+    </linearGradient>
+    <linearGradient id="beak" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffe17a"/>
+      <stop offset="0.6" stop-color="#f5b335"/>
+      <stop offset="1" stop-color="#d98a1a"/>
+    </linearGradient>
+    <linearGradient id="tail" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f0645a"/>
+      <stop offset="1" stop-color="#b8322b"/>
+    </linearGradient>
+    <linearGradient id="branch" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#a87346"/>
+      <stop offset="1" stop-color="#6b4426"/>
+    </linearGradient>
+    <radialGradient id="cheek" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ff6a5c"/>
+      <stop offset="1" stop-color="#ff6a5c" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- tail, behind everything -->
+  <path d="M100 196 C 96 220 92 236 86 252 L 104 252 C 110 236 116 220 122 198 Z" fill="url(#tail)"/>
+  <path d="M104 252 C 110 236 116 220 122 198 L 114 198 C 108 220 102 236 96 252 Z" fill="url(#blue)" opacity="0.9"/>
+
+  <!-- branch -->
+  <path d="M14 204 C 80 198 170 200 242 208 C 246 212 244 220 238 220 C 170 214 80 212 18 218 C 10 218 8 206 14 204 Z" fill="url(#branch)"/>
+  <path d="M206 206 C 216 190 232 186 244 190 C 236 202 222 208 206 206 Z" fill="#3fa24f"/>
+  <path d="M208 206 C 220 198 232 194 244 190" stroke="#2a7a37" stroke-width="2" fill="none"/>
+
+  <!-- body -->
+  <path d="M152 106 C 176 132 172 186 136 206 C 110 218 84 204 84 172 C 84 136 108 104 152 106 Z" fill="url(#body)"/>
+  <path d="M146 124 C 164 146 160 186 134 200 C 120 206 110 196 114 176 C 118 150 128 128 146 124 Z" fill="url(#belly)" opacity="0.85"/>
+
+  <!-- wing -->
+  <path d="M116 112 C 84 124 74 168 84 212 C 90 222 104 214 112 198 C 126 166 132 132 116 112 Z" fill="url(#wing)"/>
+  <path d="M84 212 C 80 192 84 174 92 162 C 98 178 104 190 112 198 C 104 214 90 222 84 212 Z" fill="url(#blue)"/>
+  <path d="M100 138 C 108 146 112 156 112 168 M92 150 C 100 160 104 170 104 182" stroke="#13602a" stroke-width="2.2" fill="none" stroke-linecap="round" opacity="0.7"/>
+  <path d="M92 164 L 104 196 M98 162 L 110 192" stroke="#1b48b0" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+
+  <!-- feet -->
+  <g fill="#9a9ea6" stroke="#5c6068" stroke-width="1.6" stroke-linejoin="round">
+    <path d="M110 198 C 105 204 104 211 108 214 C 112 215 114 211 116 207 C 118 211 120 215 125 214 C 128 209 125 202 120 197 Z"/>
+    <path d="M131 196 C 126 202 126 210 129 213 C 133 214 135 210 137 206 C 139 210 142 214 146 212 C 148 207 145 200 140 195 Z"/>
+  </g>
+
+  <!-- crest -->
+  <path d="M120 46 C 108 26 116 10 126 14 C 130 24 130 36 128 44 Z" fill="#e5534b"/>
+  <path d="M130 42 C 128 20 140 8 148 14 C 148 26 142 36 136 42 Z" fill="#f5c542"/>
+  <path d="M140 44 C 146 28 160 24 164 32 C 158 38 150 42 144 46 Z" fill="#e5534b"/>
+
+  <!-- head -->
+  <circle cx="138" cy="82" r="44" fill="url(#body)"/>
+  <path d="M104 62 C 112 44 132 36 150 42" stroke="#b6f0b8" stroke-width="5" stroke-linecap="round" fill="none" opacity="0.6"/>
+
+  <!-- cheek -->
+  <ellipse cx="147" cy="101" rx="11" ry="7.5" fill="#ff6b5e"/>
+  <ellipse cx="144" cy="99" rx="4" ry="2.5" fill="#ffb3a8" opacity="0.8"/>
+
+  <!-- beak -->
+  <path d="M163 96 C 175 95 184 104 187 116 C 179 116 170 110 162 103 Z" fill="#5a5c66"/>
+  <path d="M160 64 C 186 52 212 72 209 104 C 208 118 200 128 190 128 C 193 116 190 104 180 99 C 168 96 160 86 160 64 Z" fill="url(#beak)"/>
+  <path d="M172 66 C 188 66 199 78 201 96" stroke="#fff3c0" stroke-width="3" stroke-linecap="round" fill="none" opacity="0.7"/>
+
+  <!-- eye -->
+  <circle cx="148" cy="74" r="13" fill="#fff6d8"/>
+  <circle cx="150" cy="74" r="8" fill="#16181c"/>
+  <circle cx="153" cy="70" r="3" fill="#ffffff"/>
+  <circle cx="147" cy="78" r="1.4" fill="#ffffff" opacity="0.8"/>
+</g>
+</svg>

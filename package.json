@@ -1,0 +1,42 @@
+{
+  "name": "perch",
+  "version": "0.1.0",
+  "description": "A small terminal coding agent for DeepSeek and other OpenAI-compatible models",
+  "scripts": {
+    "dev": "tsx src/cli.tsx",
+    "build": "tsc -p .",
+    "typecheck": "tsc -p . --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "build:app": "node scripts/build-app.mjs",
+    "app": "node scripts/build-app.mjs && electron ."
+  },
+  "keywords": [],
+  "author": "Feisty Parrot Studios",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "diff": "^9.0.0",
+    "fast-glob": "^3.3.3",
+    "ink": "^8.0.0",
+    "marked": "^18.1.1",
+    "pngjs": "^7.0.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "@types/node": "^26.6.5",
+    "@types/pngjs": "^6.0.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "electron": "^45.0.0",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "bin": {
+    "perch": "bin/perch.mjs"
+  },
+  "main": "app-dist/main.cjs",
+  "productName": "Perch"
+}
