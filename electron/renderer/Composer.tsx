@@ -85,6 +85,16 @@ export function Composer(p: Props) {
     ta.current?.focus();
   }), [p.sessionId]);
 
+  // Messages sent while Perch worked but never read, because the run stopped, come back here.
+  useEffect(() => bus.on("unsent", (e: { sessionId: string; text: string }) => {
+    if (e.sessionId !== p.sessionId) return;
+    setText((t) => {
+      const v = t ? `${e.text}\n${t}` : e.text;
+      drafts.set(p.sessionId, v);
+      return v;
+    });
+  }), [p.sessionId]);
+
   const addFiles = async (files: File[]) => {
     for (const f of files) {
       const path: string = api.pathForFile(f);
@@ -126,7 +136,7 @@ export function Composer(p: Props) {
 
   const send = () => {
     const t = text.trim();
-    if ((!t && !images.length) || p.busy) return;
+    if (!t && !images.length) return;
     p.onSend(t || "Look at this image.", images);
     change("");
     setImages(() => []);
@@ -269,7 +279,7 @@ export function Composer(p: Props) {
         </span>
         {p.busy && (
           <span>
-            <kbd>Esc</kbd> stop
+            <kbd>Esc</kbd> stop · messages you send now are read after the current step
           </span>
         )}
       </div>

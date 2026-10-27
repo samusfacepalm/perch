@@ -60,6 +60,7 @@ export function App({ config, session, yolo, autoContinue, firstPrompt, models }
   const auto = useRef(autoContinue);
 
   const add = (item: NewItem) => setItems((xs) => [...xs, { ...item, id: id() } as Item]);
+  const queuedRef = useRef<string[]>([]); // typed while busy, not yet read by the model
 
   const agent = useMemo(
     () =>
@@ -74,6 +75,11 @@ export function App({ config, session, yolo, autoContinue, firstPrompt, models }
             if (e.type === "reasoning") setThinking((t) => (t + e.delta).slice(-400));
           },
           onMessage: (m) => {
+            // A message typed while Perch was busy shows once the model actually reads it.
+            if (m.role === "user" && queuedRef.current.includes(m.content)) {
+              queuedRef.current.splice(queuedRef.current.indexOf(m.content), 1);
+              add({ kind: "user", text: m.content });
+            }
             if (m.role === "assistant") {
               setStreamText("");
               setThinking("");
@@ -92,6 +98,12 @@ export function App({ config, session, yolo, autoContinue, firstPrompt, models }
           },
           onStatus: (t) => setStatus(t),
           ask: (tool, summary, args) => new Promise<Decision>((resolve) => setPending({ tool, summary, args, resolve })),
+          onUnsent: (texts) => {
+            queuedRef.current = [];
+            const v = texts.join("\n");
+            setInput(v);
+            setCursor(v.length);
+          },
         },
       }),
     [],
@@ -249,13 +261,20 @@ Keys: Enter send, Ctrl+J or Shift+Enter new line, Esc interrupt, Up/Down history
       if (busy) agent.abort();
       return;
     }
-    if (busy) return; // typing is allowed below only when idle
     if (key.return && !key.shift) {
       const text = input.trim();
       if (!text) return;
+      if (busy && text.startsWith("/")) return setStatus("Commands wait until Perch finishes; Esc stops it.");
       setInput("");
       setCursor(0);
       historyIdx.current = -1;
+      if (busy) {
+        // Perch reads it after the current step, without being interrupted.
+        sent.current.push(text);
+        queuedRef.current.push(text);
+        agent.steer(text);
+        return;
+      }
       void send(text);
       return;
     }
@@ -339,6 +358,7 @@ Keys: Enter send, Ctrl+J or Shift+Enter new line, Esc interrupt, Up/Down history
             {input.slice(0, cursor)}
             <Text inverse>{input[cursor] ?? " "}</Text>
             {input.slice(cursor + 1)}
+            {busy && !input && <Text dimColor>Perch reads anything you send here after its current step</Text>}
           </Text>
         </Box>
         <Text dimColor wrap="truncate-end">
@@ -385,7 +405,7 @@ function PermissionPrompt({ pending, width }: { pending: Pending; width: number 
     pending.tool === "bash"
       ? pending.args.command
       : pending.tool === "edit"
-        ? `${pending.args.path}\n- ${String(pending.args.old_string).split("\n").slice(0, 8).join("\n- ")}\n+ ${String(pending.args.new_string).split("\n").slice(0, 8).join("\n+ ")}`
+        ? [pending.args.path, ...(Array.isArray(pending.args.edits) && pending.args.edits.length ? pending.args.edits : [pending.args]).slice(0, 4).map((e: any) => `- ${String(e.old_string).split("\n").slice(0, 8).join("\n- ")}\n+ ${String(e.new_string).split("\n").slice(0, 8).join("\n+ ")}`)].join("\n")
         : pending.tool === "write"
           ? `${pending.args.path} (${String(pending.args.content ?? "").split("\n").length} lines)`
           : pending.summary;

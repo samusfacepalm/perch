@@ -97,6 +97,7 @@ function agentFor(session: Session): Agent {
         if (call.function.name === "todowrite") send(id, "todos", { todos: session.todos });
       },
       onStatus: (text) => send(id, "status", { text }),
+      onUnsent: (texts) => send(id, "unsent", { text: texts.join("\n") }),
       ask: (tool, summary, args) =>
         new Promise<Decision>((resolve) => {
           const reqId = ++askId;
@@ -365,7 +366,8 @@ function registerIpc() {
 
   ipcMain.handle("agent:send", async (_e, id: string, text: string, images?: string[]) => {
     const a = getAgent(id);
-    if (a.busy) throw new Error("This session is already working.");
+    // Sent while working: Perch reads it after the current step.
+    if (a.busy) return a.steer(text, images?.filter(isImage));
     send(id, "busy", { busy: true });
     try {
       await a.run(text, images?.filter(isImage));

@@ -3,7 +3,7 @@ import { Marked } from "marked";
 import type { PerchApi } from "../preload.js";
 import { BIRDS, BIRD_URLS, mascot } from "./mascots.js";
 import { Composer } from "./Composer.js";
-import { Lightbox, ShotsPanel, Thumbs } from "./gallery.js";
+import { bus, Lightbox, ShotsPanel, Thumbs } from "./gallery.js";
 import { PlayButton, PlayCard, type PlayResult } from "./play.js";
 
 declare global {
@@ -457,14 +457,16 @@ function PermissionCard({ ask, onAnswer }: { ask: Ask; onAnswer: (d: { allow: bo
     detail = (
       <>
         <div className="path">{a.path}</div>
-        <pre className="diff">
-          {String(a.old_string ?? "").split("\n").map((l: string, i: number) => (
-            <div key={"o" + i} className="del">- {l}</div>
-          ))}
-          {String(a.new_string ?? "").split("\n").map((l: string, i: number) => (
-            <div key={"n" + i} className="add">+ {l}</div>
-          ))}
-        </pre>
+        {(Array.isArray(a.edits) && a.edits.length ? a.edits : [a]).map((e: any, n: number) => (
+          <pre className="diff" key={n}>
+            {String(e.old_string ?? "").split("\n").map((l: string, i: number) => (
+              <div key={"o" + i} className="del">- {l}</div>
+            ))}
+            {String(e.new_string ?? "").split("\n").map((l: string, i: number) => (
+              <div key={"n" + i} className="add">+ {l}</div>
+            ))}
+          </pre>
+        ))}
       </>
     );
   if (ask.tool === "write")
@@ -950,6 +952,7 @@ export function App() {
       const id = e.sessionId;
       if (e.type === "sessions") return setSessions(e.sessions);
       if (e.type === "models") return setModels(e.models);
+      if (e.type === "unsent") return bus.emit("unsent", { sessionId: id, text: e.text });
       update(id, (l) => {
         const snap = l.snap;
         switch (e.type) {
@@ -1008,8 +1011,10 @@ export function App() {
   };
 
   const submit = (text: string, images: string[] = []) => {
-    if (!text || !live || live.snap.busy) return;
+    if (!text || !live) return;
     stick.current = true;
+    // While working, the message waits for the current step; main shows it when Perch reads it.
+    if (live.snap.busy) return void api.send(live.snap.id, text, images);
     update(live.snap.id, (l) => ({ ...l, snap: { ...l.snap, busy: true } }));
     api.send(live.snap.id, text, images).catch((err: any) => update(live.snap.id, (l) => ({ ...l, error: String(err?.message ?? err) })));
   };

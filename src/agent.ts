@@ -10,7 +10,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { chat, estimateTokens, maxOutput, type Message, type StreamEvent, type ToolCall, type ToolSpec, type Usage } from "./provider.js";
+import { chat, estimateTokens, isContextOverflow, maxOutput, type Message, type StreamEvent, type ToolCall, type ToolSpec, type Usage } from "./provider.js";
 import { HOME, resolveModel, type PerchConfig } from "./config.js";
 import { saveSession, type Session, type SessionUsage } from "./session.js";
 import { costOf, priceFor } from "./pricing.js";
@@ -53,6 +53,7 @@ export interface AgentEvents {
   onToolEnd?(call: ToolCall, result: ToolResult & { error?: boolean }): void;
   onStatus?(text: string): void;
   ask?(tool: string, summary: string, args: any): Promise<Decision>;
+  onUnsent?(texts: string[]): void; // queued messages the run ended without reading, for the input box
 }
 
 export interface AgentOptions {
@@ -78,6 +79,7 @@ export class Agent {
   private lastTokens = 0;
   private toolImages: string[] = []; // images tools produced this step, shown to vision models
   private turnCalls = new Map<string, number>(); // tool calls per tool since the user last wrote
+  private queued: { text: string; images?: string[] }[] = []; // sent while the agent was working
   readonly opts: AgentOptions;
 
   constructor(opts: AgentOptions) {
@@ -94,6 +96,21 @@ export class Agent {
 
   abort() {
     this.controller?.abort();
+  }
+
+  // A message the user sends while the agent works, after pi's steering queue. The model reads
+  // it once the current step's tools finish, so the user can redirect without interrupting.
+  steer(text: string, images?: string[]) {
+    this.queued.push({ text, images });
+    this.events.onStatus?.(`Perch will read your message after this step${this.queued.length > 1 ? ` (${this.queued.length} waiting)` : ""}.`);
+  }
+
+  // Move queued messages into the conversation. Returns whether there were any.
+  private takeQueued(): boolean {
+    if (!this.queued.length) return false;
+    for (const q of this.queued.splice(0)) this.push(q.images?.length ? { role: "user", content: q.text, images: q.images } : { role: "user", content: q.text });
+    this.turnCalls.clear();
+    return true;
   }
 
   get contextTokens() {
@@ -150,6 +167,8 @@ export class Agent {
       repairToolPairs(this.session.messages);
       repairToolPairs(this.session.history);
       this.controller = undefined;
+      // After an interrupt or error, messages still waiting go back to the input box.
+      if (this.queued.length) this.events.onUnsent?.(this.queued.splice(0).map((q) => q.text));
       if (!this.opts.isSubagent) (this.opts.save ?? saveSession)(this.session);
     }
   }
@@ -162,6 +181,7 @@ export class Agent {
     // Compaction trigger, after DeepSeek Harness: leave room for a full reply plus a margin.
     const limit = Math.min(model.context * this.config.compactAt, model.context - maxOutput(model) - 65_536, this.config.compactTokens);
 
+    let overflowed = false;
     for (let step = 0; step < this.config.maxSteps; step++) {
       if (signal.aborted) return "[interrupted]";
       if (this.contextTokens > limit) await this.compact(signal);
@@ -171,19 +191,31 @@ export class Agent {
       const last = step === this.config.maxSteps - 1;
       if (last) this.push({ role: "user", content: MAX_STEPS_PROMPT }, false);
 
-      const res = await chat({
-        provider,
-        model,
-        messages: this.session.messages,
-        tools: last ? undefined : this.toolSpecs(),
-        signal,
-        sessionId: this.session.id,
-        thinking: this.session.thinking,
-        onEvent: (e) => {
-          if (e.type === "retry") this.events.onStatus?.(`${provider.name} error, retry ${e.attempt} in ${Math.round(e.waitMs / 1000)}s: ${e.error.slice(0, 120)}`);
-          this.events.onStream?.(e);
-        },
-      });
+      let res: Awaited<ReturnType<typeof chat>>;
+      try {
+        res = await chat({
+          provider,
+          model,
+          messages: this.session.messages,
+          tools: last ? undefined : this.toolSpecs(),
+          signal,
+          sessionId: this.session.id,
+          thinking: this.session.thinking,
+          onEvent: (e) => {
+            if (e.type === "retry") this.events.onStatus?.(`${provider.name} error, retry ${e.attempt} in ${Math.round(e.waitMs / 1000)}s: ${e.error.slice(0, 120)}`);
+            this.events.onStream?.(e);
+          },
+        });
+      } catch (e) {
+        // The token estimate can undershoot, so the provider may reject the request as too long.
+        // Summarise and try once more, as pi does, instead of ending the run.
+        if (overflowed || !isContextOverflow(e)) throw e;
+        overflowed = true;
+        this.events.onStatus?.("The conversation no longer fits the model's context; summarising and trying again…");
+        await this.compact(signal, true);
+        continue;
+      }
+      overflowed = false;
       this.addUsage(res.usage, this.session.model);
       this.lastTokens = res.usage.input + res.usage.output;
       this.push(res.message);
@@ -194,6 +226,8 @@ export class Agent {
           this.push({ role: "user", content: "Your reply was cut off by the output limit. Continue exactly where you stopped." }, false);
           continue;
         }
+        if (this.takeQueued()) continue; // the user wrote while this reply was being written
+
         const open = this.session.todos.filter((t) => t.status === "pending" || t.status === "in_progress");
         if (this.opts.autoContinue && open.length && nudges < 3) {
           nudges++;
@@ -225,6 +259,7 @@ export class Agent {
         this.push({ role: "user", content: `${TOOL_IMAGES} (${images.length} of ${this.toolImages.length}):`, images }, false);
       }
       this.toolImages = [];
+      this.takeQueued();
 
       // The same call three times in a row usually means the model is stuck.
       for (const c of calls) recent.push(c.function.name + c.function.arguments);
@@ -349,7 +384,9 @@ export class Agent {
   }
 
   // Summarise the conversation so far and carry on from the summary.
-  async compact(signal?: AbortSignal) {
+  // overflowed: the provider just rejected the conversation as too long, so asking the same
+  // model with the whole conversation would fail too; go straight to the fallback.
+  async compact(signal?: AbortSignal, overflowed = false) {
     this.events.onStatus?.("Context nearly full; summarising the conversation...");
     const [system, ...rest] = this.session.messages;
     const main = resolveModel(this.config, this.session.model);
@@ -364,7 +401,7 @@ export class Agent {
     // tools and messages, and the instruction appended. The whole request then hits the warm
     // prefix cache, which makes the summary cheap and quick.
     let text = "";
-    try {
+    if (!overflowed) try {
       const res = await chat({
         provider: main.provider,
         model: main.model,

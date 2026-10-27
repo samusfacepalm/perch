@@ -63,6 +63,29 @@ export class ProviderError extends Error {
   }
 }
 
+// How providers word "the request is longer than the context window". From pi's list
+// (packages/ai/src/utils/overflow.ts), cut to the providers Perch can reach.
+const OVERFLOW = [
+  /maximum context length/i, // OpenAI-compatible, DeepSeek, OpenRouter
+  /exceeds the context window/i,
+  /context[_ ]length[_ ]exceeded/i,
+  /context window exceeds limit/i,
+  /prompt (?:is )?too long/i,
+  /reduce the length of the messages/i,
+  /exceeds the available context size/i, // llama.cpp
+  /greater than the context length/i, // LM Studio
+  /input \(\d+ tokens\) is longer than the model'?s context length/i,
+  /exceeded model token limit/i,
+  /range of input length should be/i, // Qwen
+];
+
+export function isContextOverflow(err: unknown): boolean {
+  if (!(err instanceof ProviderError)) return false;
+  if (err.status === 413) return true;
+  if (err.status === 429 || (err.status ?? 0) >= 500) return false; // rate limits mention tokens too
+  return OVERFLOW.some((p) => p.test(err.message));
+}
+
 function sleep(ms: number, signal?: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
     const t = setTimeout(resolve, ms);

@@ -11,7 +11,7 @@ const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "perch-test-"));
 process.env.USERPROFILE = tmp; // keep sessions and spill files out of the real ~/.perch
 process.env.HOME = tmp;
 
-type Reply = { content?: string; reasoning?: string; calls?: [string, object][] };
+type Reply = { content?: string; reasoning?: string; calls?: [string, object][]; status?: number; error?: string };
 let script: Reply[] = [];
 const requests: any[] = [];
 let server: http.Server;
@@ -42,6 +42,10 @@ before(async () => {
     req.on("end", () => {
       requests.push(JSON.parse(body));
       const reply = script.shift() ?? { content: "done" };
+      if (reply.status) {
+        res.writeHead(reply.status, { "content-type": "application/json" });
+        return res.end(reply.error ?? "");
+      }
       res.writeHead(200, { "content-type": "text/event-stream" });
       res.end(sse(reply));
     });
@@ -162,4 +166,62 @@ test("retireOldImages keeps only the newest batch once there are too many", asyn
   const kept = many.filter((m: any) => m.images);
   assert.deepEqual(kept.map((m: any) => m.images[0]), ["mine.png", "e-0.png"], "the user's own image and the newest batch stay");
   assert.match((many[1] as any).content, /a-0\.png, a-1\.png, a-2\.png/);
+});
+
+test("a message sent while the agent works is read after the current step", async () => {
+  const { agent } = await setup();
+  script = [{ calls: [["list", { path: "." }]] }, { content: "done" }];
+  requests.length = 0;
+  const run = agent.run("look around");
+  agent.steer("and say hello");
+  assert.equal(await run, "done");
+  const second = requests[1].messages.map((m: any) => m.role + ":" + (typeof m.content === "string" ? m.content : ""));
+  assert.equal(second.at(-1), "user:and say hello", "it follows the tool result");
+  assert.equal(second.at(-2).split(":")[0], "tool");
+});
+
+test("a message sent during a final reply gets its own reply", async () => {
+  const { agent } = await setup();
+  script = [{ content: "first answer" }, { content: "second answer" }];
+  requests.length = 0;
+  const run = agent.run("question");
+  agent.steer("follow-up");
+  assert.equal(await run, "second answer");
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].messages.at(-1).content, "follow-up");
+});
+
+test("a context overflow from the provider is summarised and retried once", async () => {
+  const { agent, session } = await setup();
+  session.messages.push({ role: "system", content: "s" }, { role: "user", content: "old " + "x".repeat(80_000) }, { role: "assistant", content: "noted" });
+  script = [
+    { status: 400, error: `{"error":{"message":"This model's maximum context length is 131072 tokens. However, you requested 150000 tokens."}}` },
+    { content: "## Objective\nOld work summarised." },
+    { content: "recovered" },
+  ];
+  requests.length = 0;
+  assert.equal(await agent.run("continue"), "recovered");
+  assert.equal(requests.length, 3);
+  assert.equal(session.compactions, 1);
+  assert.ok(!JSON.stringify(requests[2].messages).includes("x".repeat(1000)), "the old bulk is gone");
+  assert.equal(requests[2].messages.at(-1).content, "continue");
+});
+
+test("a second overflow in a row is reported, not retried forever", async () => {
+  const { agent, session } = await setup();
+  session.messages.push({ role: "system", content: "s" }, { role: "user", content: "old " + "x".repeat(80_000) }, { role: "assistant", content: "noted" });
+  const overflow = { status: 400, error: "maximum context length is 1000 tokens" };
+  script = [overflow, { content: "summary" }, overflow];
+  requests.length = 0;
+  await assert.rejects(agent.run("continue"), /maximum context length/);
+  assert.equal(requests.length, 3);
+});
+
+test("isContextOverflow tells overflow from other errors", async () => {
+  const { isContextOverflow, ProviderError } = await import("../src/provider.js");
+  assert.ok(isContextOverflow(new ProviderError("DeepSeek returned 400: This model's maximum context length is 131072 tokens", 400)));
+  assert.ok(isContextOverflow(new ProviderError("returned 413: too big", 413)));
+  assert.ok(!isContextOverflow(new ProviderError("returned 429: too many tokens per minute", 429)));
+  assert.ok(!isContextOverflow(new ProviderError("returned 400: invalid tool schema", 400)));
+  assert.ok(!isContextOverflow(new Error("maximum context length")));
 });
