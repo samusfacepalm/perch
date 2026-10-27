@@ -1,4 +1,6 @@
 :root {
+  /* Tells Chromium which palette native controls use: dropdown lists, checkboxes, sliders. */
+  color-scheme: light;
   --bg: #f7f5f0;
   --panel: #efece5;
   --card: #ffffff;
@@ -20,6 +22,7 @@
   --sans: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
 }
 @media (prefers-color-scheme: dark) {
+  :root { color-scheme: dark; }
   :root {
     --bg: #14171a;
     --panel: #1b1f23;
@@ -462,3 +465,8 @@ kbd { font-family: var(--sans); font-size: 10.5px; padding: 1px 5px; border-radi
 .sound.on { border-color: var(--accent); color: var(--accent); }
 .sound-icon { width: 14px; color: var(--accent); }
 .sound-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Native dropdown lists: readable in both themes, with provider groups set apart. */
+select option { background: var(--card); color: var(--text); }
+select optgroup { background: var(--panel); color: var(--muted); font-style: normal; font-weight: 600; }
+select option:disabled { color: var(--muted); }
