@@ -1,7 +1,8 @@
 // Agents and skills that ship with Perch. They are written to ~/.perch/agents and ~/.perch/skills
-// the first time Perch runs, and never overwritten after that, so they are the user's to edit.
+// the first time Perch runs. A newer version replaces one only if the user hasn't edited it.
 
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { HOME } from "./config.js";
 
@@ -19,11 +20,12 @@ You investigate a codebase and report what you find. You never change files.
   reviewer: `---
 name: reviewer
 description: Reviews recent changes for bugs, regressions and missed cases, with fresh eyes. Read-only. Give it the files or the diff command to look at and what the change was meant to do.
-tools: read, glob, grep, list, bash
+tools: read, glob, grep, list, bash, play
 ---
 You review a change made by another agent. You never change files.
 - Look at the actual diff (git diff, or the files named in your brief) and the code around it.
 - Look for: logic errors, broken edge cases, things the change forgot to update elsewhere, and behaviour that differs from what the brief says was intended.
+- If the change is visual (a web page, a canvas or three.js scene, a game), open it with the play tool (page argument for a web page) and report what the screenshots show as well as what the code says.
 - Ignore style and naming unless they cause bugs.
 - Report each problem as: path:line, what is wrong, and a concrete failure (input or situation → wrong result). If you find nothing, say so plainly; don't invent problems.`,
 
@@ -140,21 +142,33 @@ description: How to check game changes by playing: choosing screenshot times and
 - Don't "fix" things the user didn't ask about. List them in your reply.`,
 };
 
+// A file counts as unedited when its hash is one Perch wrote (recorded in builtin.json) or one of
+// the first versions, written before that record existed.
+const FIRST_VERSIONS = new Set(["8d696311be0b7646", "25428759e1a67406", "7abcd7c6d84e0e29", "16ba5d334b5dbafd", "c2a2fa74ef364e8e", "fe450120622ca5c5", "524a7000238d7433", "4ae1debdec4a1f76"]);
+const hash = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 16);
+
 export function installBuiltins() {
   try {
-    const agentDir = path.join(HOME, "agents");
-    fs.mkdirSync(agentDir, { recursive: true });
-    for (const [name, text] of Object.entries(AGENTS)) {
-      const f = path.join(agentDir, `${name}.md`);
-      if (!fs.existsSync(f)) fs.writeFileSync(f, text + "\n");
-    }
-    for (const [name, text] of Object.entries(SKILLS)) {
-      const dir = path.join(HOME, "skills", name);
-      const f = path.join(dir, "SKILL.md");
-      if (fs.existsSync(f)) continue;
-      fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(f, text + "\n");
-    }
+    const recordFile = path.join(HOME, "builtin.json");
+    let written: string[] = [];
+    try {
+      written = JSON.parse(fs.readFileSync(recordFile, "utf8"));
+    } catch {}
+    const place = (f: string, text: string) => {
+      const body = text + "\n";
+      if (fs.existsSync(f)) {
+        const disk = fs.readFileSync(f, "utf8");
+        if (disk === body) return;
+        const h = hash(disk);
+        if (!FIRST_VERSIONS.has(h) && !written.includes(h)) return; // the user's own edits stay
+      }
+      fs.mkdirSync(path.dirname(f), { recursive: true });
+      fs.writeFileSync(f, body);
+      written.push(hash(body));
+    };
+    for (const [name, text] of Object.entries(AGENTS)) place(path.join(HOME, "agents", `${name}.md`), text);
+    for (const [name, text] of Object.entries(SKILLS)) place(path.join(HOME, "skills", name, "SKILL.md"), text);
+    fs.writeFileSync(recordFile, JSON.stringify([...new Set(written)]));
   } catch {
     // a read-only home folder shouldn't stop Perch from starting
   }

@@ -2,73 +2,11 @@
 // screenshots come straight from the page and the browser console becomes the game's log.
 
 import { BrowserWindow } from "electron";
-import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
-import net from "node:net";
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { defaultShots, errorLines, newRunDir, runNative, type PlayOptions, type PlayPlan, type PlayResult } from "../src/play.js";
-
-const MIME: Record<string, string> = {
-  ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css", ".json": "application/json",
-  ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml",
-  ".ogg": "audio/ogg", ".m4a": "audio/mp4", ".mp3": "audio/mpeg", ".wav": "audio/wav", ".wasm": "application/wasm",
-  ".woff": "font/woff", ".woff2": "font/woff2", ".ttf": "font/ttf", ".otf": "font/otf", ".txt": "text/plain",
-};
-
-// One static server per folder, reused across plays.
-const servers = new Map<string, { port: number; server: http.Server }>();
-async function serveFolder(root: string): Promise<number> {
-  const existing = servers.get(root);
-  if (existing) return existing.port;
-  const server = http.createServer((req, res) => {
-    const rel = decodeURIComponent((req.url ?? "/").split("?")[0]);
-    const file = path.join(root, rel.endsWith("/") ? rel + "index.html" : rel);
-    if (!file.startsWith(root)) return res.writeHead(403).end();
-    fs.readFile(file, (err, data) => {
-      if (err) return res.writeHead(404).end("Not found");
-      res.writeHead(200, { "content-type": MIME[path.extname(file).toLowerCase()] ?? "application/octet-stream", "cache-control": "no-store" });
-      res.end(data);
-    });
-  });
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
-  const port = (server.address() as net.AddressInfo).port;
-  servers.set(root, { port, server });
-  return port;
-}
-
-// Dev servers (npm run dev) keep running between plays; they take a while to start.
-const devServers = new Map<string, ChildProcess>();
-async function ensureDevServer(cwd: string, command: string, url: string, log: (s: string) => void) {
-  const up = async () => {
-    try {
-      return (await fetch(url, { signal: AbortSignal.timeout(1000) })).ok;
-    } catch {
-      return false;
-    }
-  };
-  if (await up()) return;
-  if (!devServers.has(cwd)) {
-    const child = spawn(command, { cwd, shell: true, windowsHide: true });
-    child.stdout?.on("data", (d) => log(d.toString()));
-    child.stderr?.on("data", (d) => log(d.toString()));
-    child.on("exit", () => devServers.delete(cwd));
-    devServers.set(cwd, child);
-  }
-  const deadline = Date.now() + 90_000;
-  while (Date.now() < deadline) {
-    if (await up()) return;
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  throw new Error(`The dev server didn't answer at ${url} within 90 seconds.`);
-}
-
-export function stopWebServers() {
-  for (const { server } of servers.values()) server.close();
-  servers.clear();
-  for (const c of devServers.values()) if (c.pid) spawnSync("taskkill", ["/pid", String(c.pid), "/T", "/F"], { stdio: "ignore" });
-  devServers.clear();
-}
+import { webUrl } from "../src/webserve.js";
+export { stopWebServers } from "../src/webserve.js";
 
 // Electron's key names for sendInputEvent are close to the DOM's; map the common differences.
 const KEYS: Record<string, string> = { ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right", " ": "Space", Esc: "Escape", Return: "Enter" };
@@ -83,9 +21,7 @@ async function runWeb(plan: PlayPlan, cwd: string, opts: PlayOptions, signal?: A
     if (lines.length > 3000) lines.splice(0, lines.length - 2000);
   };
 
-  let url = plan.url!;
-  if (plan.kind === "web") url = `http://127.0.0.1:${await serveFolder(plan.root!)}/${plan.url ?? "index.html"}`;
-  else if (plan.devCommand) await ensureDevServer(cwd, plan.devCommand, url, log);
+  const url = await webUrl(plan, cwd, log);
 
   const win = new BrowserWindow({
     width: 1280,

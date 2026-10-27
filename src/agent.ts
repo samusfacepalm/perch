@@ -33,13 +33,12 @@ export const BASE_TOOLS: Tool[] = [read, edit, write, bash, glob, grep, list, to
 // The full tool set for a folder: the base tools, plus skills and named subagents found for it.
 export function toolsFor(cwd: string, playRunner?: PlayRunner): Tool[] {
   const skills = loadSkills(cwd);
-  const play = makePlayTool(cwd, playRunner);
   return [
     ...BASE_TOOLS,
     makeTaskTool(loadAgents(cwd)),
     ...(skills.length ? [makeSkillTool(skills)] : []),
     ...makeMcpTools(configuredServers(cwd)),
-    ...(play ? [play] : []),
+    makePlayTool(cwd, playRunner),
   ];
 }
 // Calls that may run side by side. Subagents are included so several can work at once.
@@ -290,6 +289,8 @@ export class Agent {
     const rule = this.config.permissions[tool.name] ?? "ask";
     if (rule === "deny") return { allow: false, feedback: `${tool.name} is disabled in the configuration.` };
     if (rule === "allow") return { allow: true };
+    // Opening a page runs it in a browser sandbox, not on the PC itself, so it never asks.
+    if (tool.name === "play" && typeof args.page === "string") return { allow: true };
     // Session permission modes: "edits" lets file changes through, "all" lets everything
     // through except shell commands that look destructive, which still ask.
     const mode = this.session.permissionMode ?? this.config.defaultMode;
