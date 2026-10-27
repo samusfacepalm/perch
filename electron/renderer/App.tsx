@@ -706,7 +706,7 @@ function UsagePanel({ snap, models }: { snap: Snapshot; models: ModelChoice[] })
   );
 }
 
-function SidePanel({ snap, models, shotsKey }: { snap: Snapshot; models: ModelChoice[]; shotsKey: number }) {
+function SidePanel({ snap, models, shotsKey, onClose }: { snap: Snapshot; models: ModelChoice[]; shotsKey: number; onClose?: () => void }) {
   const hasPlan = snap.todos.length > 0;
   const [tab, setTab] = useState<"plan" | "usage" | "shots" | "setup">(hasPlan ? "plan" : "usage");
   useEffect(() => {
@@ -728,6 +728,11 @@ function SidePanel({ snap, models, shotsKey }: { snap: Snapshot; models: ModelCh
         <button className={tab === "setup" ? "on" : ""} onClick={() => setTab("setup")}>
           Setup
         </button>
+        {onClose && (
+          <button className="close-sheet" onClick={onClose} title="Close">
+            ✕
+          </button>
+        )}
       </div>
       <div className="side-body">{tab === "plan" ? (
           <Todos todos={snap.todos} />
@@ -1007,6 +1012,36 @@ export function App() {
       localStorage.setItem("perch.verbose", v ? "1" : "0");
     } catch {}
   };
+  // Phone mode: one column, full screen and zoomed, for driving Perch from a phone over Steam
+  // Link or Remote Desktop. The sidebar and side panel become sheets. Remembered; Ctrl+Shift+P.
+  const [phone, setPhoneState] = useState(() => {
+    try {
+      return localStorage.getItem("perch.phone") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [drawer, setDrawer] = useState(false);
+  const [panel, setPanel] = useState(false);
+  const setPhone = (on: boolean) => {
+    setPhoneState(on);
+    setDrawer(false);
+    setPanel(false);
+    try {
+      localStorage.setItem("perch.phone", on ? "1" : "0");
+    } catch {}
+  };
+  useEffect(() => void api.setPhone(phone), [phone]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "p") {
+        e.preventDefault();
+        setPhone(!phone);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [phone]);
   const [plays, setPlays] = useState<Record<string, PlayResult | undefined>>({});
   const [navTab, setNavTab] = useState<"sessions" | "projects">("sessions");
   const [projects, setProjects] = useState<{ path: string; name: string; sources: string[]; lastUsed?: string }[]>([]);
@@ -1077,9 +1112,13 @@ export function App() {
     stick.current = true;
   };
 
-  const open = async (id: string) => adopt(await api.openSession(id));
+  const open = async (id: string) => {
+    setDrawer(false);
+    adopt(await api.openSession(id));
+  };
   const startIn = async (cwd: string | null) => {
     const snap = await api.newSession(cwd, live?.snap.model ?? defaultModel);
+    setDrawer(false);
     adopt(snap);
     setNavTab("sessions");
     setSessions(await api.listSessions());
@@ -1119,7 +1158,8 @@ export function App() {
   const cachePct = snap && snap.usage.input ? Math.round((snap.usage.cacheHit / snap.usage.input) * 100) : 0;
 
   return (
-    <div className="app">
+    <div className={`app${phone ? " phone" : ""}${drawer ? " drawer" : ""}${panel ? " panel" : ""}`}>
+      {phone && (drawer || panel) && <div className="scrim" onClick={() => (setDrawer(false), setPanel(false))} />}
       <nav className="sidebar">
         <div className="brand">
           <button className="brand-bird" onClick={() => setShowMascots(true)} title="Choose your bird">
@@ -1209,11 +1249,25 @@ export function App() {
           <button className="ghost" onClick={() => setShowKeys(true)}>
             Keys & models
           </button>
+          <button className="ghost" onClick={() => setPhone(!phone)} title="Ctrl+Shift+P">
+            {phone ? "Leave phone mode" : "Phone mode"}
+          </button>
         </div>
       </nav>
 
       {!snap ? (
         <main className="empty">
+          <div className="drag-strip" />
+          {phone && (
+            <div className="phone-home">
+              <button className="phone-btn" onClick={() => setDrawer(true)} title="Sessions">
+                ☰
+              </button>
+              <button className="phone-btn" onClick={() => setPhone(false)} title="Leave phone mode (Ctrl+Shift+P)">
+                ⤢
+              </button>
+            </div>
+          )}
           <CheekyParrot size={210} />
           <h1>Perch</h1>
           <p>A coding agent for DeepSeek and friends.</p>
@@ -1228,6 +1282,11 @@ export function App() {
       ) : (
         <main className="chat">
           <header>
+            {phone && (
+              <button className="phone-btn" onClick={() => setDrawer(true)} title="Sessions">
+                ☰
+              </button>
+            )}
             <div className="title">
               <div className="t">{snap.title}</div>
               <button className="folder" onClick={() => api.openFolder(snap.cwd)} title="Open in Explorer">
@@ -1260,15 +1319,29 @@ export function App() {
                   update(snap.id, (l) => ({ ...l, shotsKey: (l.shotsKey ?? 0) + 1 }));
                 }}
               />
-              <span className="chip" title={`${snap.usage.cacheHit} of ${snap.usage.input} input tokens came from the cache`}>
+              <span className="chip desk" title={`${snap.usage.cacheHit} of ${snap.usage.input} input tokens came from the cache`}>
                 cache {cachePct}%
               </span>
-              <span className="chip" title="Cost of this session">
+              <span className="chip desk" title="Cost of this session">
                 {money(snap.usage.cost ?? 0)}
               </span>
               <button className="chip" disabled={snap.busy} onClick={() => api.compact(snap.id)} title="Summarise the conversation now">
                 compact
               </button>
+              {phone ? (
+                <>
+                  <button className="phone-btn" onClick={() => setPanel(true)} title="Plan, usage, shots and setup">
+                    ▤
+                  </button>
+                  <button className="phone-btn" onClick={() => setPhone(false)} title="Leave phone mode (Ctrl+Shift+P)">
+                    ⤢
+                  </button>
+                </>
+              ) : (
+                <button className="chip" onClick={() => setPhone(true)} title="Phone mode: one column, full screen and zoomed, for Steam Link or Remote Desktop (Ctrl+Shift+P)">
+                  phone
+                </button>
+              )}
             </div>
           </header>
 
@@ -1336,7 +1409,7 @@ export function App() {
             />
           </footer>
             </div>
-            <SidePanel snap={snap} models={models} shotsKey={live!.shotsKey ?? 0} />
+            <SidePanel snap={snap} models={models} shotsKey={live!.shotsKey ?? 0} onClose={phone ? () => setPanel(false) : undefined} />
           </div>
         </main>
       )}

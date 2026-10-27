@@ -122,6 +122,25 @@ function skillDirs(cwd: string): [string, string][] {
   ];
 }
 
+// Every new session lists the skills, and there can be a hundred of them; a file is read and
+// parsed again only when it changes.
+const skillCache = new Map<string, { mtime: number; data: Record<string, string> }>();
+function skillMeta(file: string): Record<string, string> | undefined {
+  let mtime: number;
+  try {
+    mtime = fs.statSync(file).mtimeMs;
+  } catch {
+    return undefined;
+  }
+  const hit = skillCache.get(file);
+  if (hit?.mtime === mtime) return hit.data;
+  const text = read(file, 4000);
+  if (!text) return undefined;
+  const { data } = frontmatter(text);
+  skillCache.set(file, { mtime, data });
+  return data;
+}
+
 export function loadSkills(cwd: string): Skill[] {
   const found = new Map<string, Skill>();
   for (const [dir, source] of skillDirs(cwd)) {
@@ -133,9 +152,8 @@ export function loadSkills(cwd: string): Skill[] {
     }
     for (const name of entries) {
       const file = path.join(dir, name, "SKILL.md");
-      const text = read(file, 4000);
-      if (!text) continue;
-      const { data } = frontmatter(text);
+      const data = skillMeta(file);
+      if (!data) continue;
       const skillName = data.name || name;
       // Later sources (project) override earlier ones with the same name.
       found.set(skillName, { name: skillName, description: data.description ?? "", path: file, source });

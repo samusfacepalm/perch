@@ -4,7 +4,7 @@
   "description": "A small terminal coding agent for DeepSeek and other OpenAI-compatible models",
   "scripts": {
     "dev": "tsx src/cli.tsx",
-    "build": "tsc -p .",
+    "build": "tsc -p . && node scripts/build-cli.mjs",
     "typecheck": "tsc -p . --noEmit",
     "test": "tsx --test test/*.test.ts",
     "build:app": "node scripts/build-app.mjs",

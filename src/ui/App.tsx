@@ -40,9 +40,25 @@ interface Pending {
 let nextId = 0;
 const id = () => nextId++;
 
+// The end of a streaming reply that fits in `rows` terminal rows at `width` columns. Ink redraws
+// the whole live area on every frame, and once that area is taller than the terminal it can no
+// longer erase it cleanly, so the full reply is printed only when it finishes.
+export function tailLines(text: string, width: number, rows: number): string {
+  const lines = text.split("\n");
+  let used = 0;
+  let i = lines.length;
+  while (i > 0) {
+    const h = Math.max(1, Math.ceil(lines[i - 1].length / Math.max(1, width)));
+    if (used + h > rows) break;
+    used += h;
+    i--;
+  }
+  return i === 0 ? text : "…\n" + lines.slice(i).join("\n");
+}
+
 export function App({ config, session, yolo, autoContinue, firstPrompt, models }: Props) {
   const { exit } = useApp();
-  const { columns } = useWindowSize();
+  const { columns, rows } = useWindowSize();
   const [items, setItems] = useState<Item[]>(() => [{ kind: "banner", id: id() }, ...replay(session.history)]);
   const [input, setInput] = useState("");
   const [cursor, setCursor] = useState(0);
@@ -61,6 +77,19 @@ export function App({ config, session, yolo, autoContinue, firstPrompt, models }
 
   const add = (item: NewItem) => setItems((xs) => [...xs, { ...item, id: id() } as Item]);
   const queuedRef = useRef<string[]>([]); // typed while busy, not yet read by the model
+  const streamBuf = useRef<{ text: string; reasoning: string; timer?: NodeJS.Timeout }>({ text: "", reasoning: "" });
+  const flushStream = () => {
+    const b = streamBuf.current;
+    b.timer = undefined;
+    const { text, reasoning } = b;
+    b.text = b.reasoning = "";
+    if (text) setStreamText((t) => t + text);
+    if (reasoning) setThinking((t) => (t + reasoning).slice(-400));
+  };
+  const dropStream = () => {
+    clearTimeout(streamBuf.current.timer);
+    streamBuf.current = { text: "", reasoning: "" };
+  };
 
   const agent = useMemo(
     () =>
@@ -70,9 +99,12 @@ export function App({ config, session, yolo, autoContinue, firstPrompt, models }
         yolo,
         autoContinue: autoContinue,
         events: {
+          // Chunks arrive far faster than Ink draws (30 frames a second), so they are gathered
+          // and handed to React once per frame instead of re-rendering for every chunk.
           onStream: (e) => {
-            if (e.type === "text") setStreamText((t) => t + e.delta);
-            if (e.type === "reasoning") setThinking((t) => (t + e.delta).slice(-400));
+            if (e.type === "text") streamBuf.current.text += e.delta;
+            if (e.type === "reasoning") streamBuf.current.reasoning += e.delta;
+            streamBuf.current.timer ??= setTimeout(flushStream, 33);
           },
           onMessage: (m) => {
             // A message typed while Perch was busy shows once the model actually reads it.
@@ -81,6 +113,7 @@ export function App({ config, session, yolo, autoContinue, firstPrompt, models }
               add({ kind: "user", text: m.content });
             }
             if (m.role === "assistant") {
+              dropStream();
               setStreamText("");
               setThinking("");
               if (m.content.trim()) add({ kind: "assistant", text: m.content.trim() });
@@ -129,6 +162,7 @@ export function App({ config, session, yolo, autoContinue, firstPrompt, models }
       else add({ kind: "note", text: "Interrupted.", color: "yellow" });
       saveSession(session);
     } finally {
+      dropStream();
       setStreamText("");
       setThinking("");
       setStatus("");
@@ -328,7 +362,7 @@ Keys: Enter send, Ctrl+J or Shift+Enter new line, Esc interrupt, Up/Down history
         )}
         {streamText && (
           <Box marginLeft={2}>
-            <Text>{streamText}</Text>
+            <Text>{tailLines(streamText, width - 2, Math.max(5, rows - 10 - (open.length ? todos.length + 1 : 0)))}</Text>
           </Box>
         )}
         {todos.length > 0 && open.length > 0 && (

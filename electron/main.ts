@@ -397,10 +397,50 @@ function registerIpc() {
     }
   });
 
+  ipcMain.handle("window:phone", (_e, on: boolean) => setPhone(on));
+
   ipcMain.handle("permission:answer", (_e, reqId: number, decision: Decision) => {
     pendingAsks.get(reqId)?.(decision);
     pendingAsks.delete(reqId);
   });
+}
+
+// No Windows title bar: the page's header drags the window, and Windows draws its own
+// minimise, maximise and close buttons over the top right, in the app's colours.
+const titleBarOverlay = () =>
+  nativeTheme.shouldUseDarkColors
+    ? { color: "#14171a", symbolColor: "#e6e6e3", height: 40 }
+    : { color: "#f7f5f0", symbolColor: "#1f2328", height: 40 };
+
+// Phone mode, for driving Perch from a phone over Steam Link or Remote Desktop: the window goes
+// full screen and the page zooms until it is about PHONE_WIDTH pixels wide, so a desktop-sized
+// stream reads like a phone app. A narrow screen (a phone-shaped Remote Desktop) needs no zoom.
+const PHONE_WIDTH = 760;
+let phone = false;
+let beforePhone: { bounds: Electron.Rectangle; maximized: boolean } | undefined;
+
+function fitPhoneZoom() {
+  if (!win || !phone) return;
+  win.webContents.setZoomFactor(Math.min(3, Math.max(1, win.getContentBounds().width / PHONE_WIDTH)));
+}
+
+function setPhone(on: boolean) {
+  if (!win || on === phone) return;
+  phone = on;
+  if (on) {
+    beforePhone = { bounds: win.getNormalBounds(), maximized: win.isMaximized() };
+    win.setMinimumSize(320, 320);
+    win.setFullScreen(true);
+    fitPhoneZoom();
+  } else {
+    win.setFullScreen(false);
+    win.webContents.setZoomFactor(1);
+    win.setMinimumSize(760, 500);
+    if (beforePhone) {
+      win.setBounds(beforePhone.bounds);
+      if (beforePhone.maximized) win.maximize();
+    }
+  }
 }
 
 function createWindow() {
@@ -414,6 +454,8 @@ function createWindow() {
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#14171a" : "#f7f5f0",
     icon: path.join(__dirname, "icon.png"),
     autoHideMenuBar: true,
+    titleBarStyle: "hidden",
+    titleBarOverlay: titleBarOverlay(),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -430,8 +472,12 @@ function createWindow() {
   });
   win.webContents.on("will-navigate", (e) => e.preventDefault());
   win.on("focus", () => win?.flashFrame(false));
-  win.on("closed", () => (win = null));
+  win.on("resize", fitPhoneZoom);
+  win.on("enter-full-screen", fitPhoneZoom);
+  win.on("closed", () => ((win = null), (phone = false)));
 }
+
+nativeTheme.on("updated", () => win?.setTitleBarOverlay(titleBarOverlay()));
 
 app.setAppUserModelId("Perch");
 

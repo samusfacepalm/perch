@@ -28,6 +28,7 @@ const api = {
   setThinking: (id: string, level: "off" | "low" | "high" | "max") => ipcRenderer.invoke("session:setThinking", id, level),
   pickFolder: () => ipcRenderer.invoke("folder:pick"),
   openFolder: (dir: string) => ipcRenderer.invoke("folder:open", dir),
+  setPhone: (on: boolean) => ipcRenderer.invoke("window:phone", on),
   send: (id: string, text: string, images?: string[]) => ipcRenderer.invoke("agent:send", id, text, images),
   listShots: (id: string) => ipcRenderer.invoke("shots:list", id),
   playDetect: (id: string) => ipcRenderer.invoke("play:detect", id),
