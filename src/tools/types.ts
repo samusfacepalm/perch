@@ -10,6 +10,8 @@ export interface ToolContext {
   // Files the model has read in this session, with the mtime it saw.
   // Edits to a file it never read, or that changed since, are refused.
   readFiles: Map<string, number>;
+  // How many times each tool has been called since the user last wrote, this call included.
+  turnCalls?: Map<string, number>;
   // Runs a subagent on a self-contained task and returns its final report.
   runSubagent?: (description: string, prompt: string, agent?: AgentDef) => Promise<string>;
 }

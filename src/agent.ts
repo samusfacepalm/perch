@@ -77,6 +77,7 @@ export class Agent {
   private controller?: AbortController;
   private lastTokens = 0;
   private toolImages: string[] = []; // images tools produced this step, shown to vision models
+  private turnCalls = new Map<string, number>(); // tool calls per tool since the user last wrote
   readonly opts: AgentOptions;
 
   constructor(opts: AgentOptions) {
@@ -140,6 +141,7 @@ export class Agent {
         await this.compact(signal);
       }
       this.push(images?.length ? { role: "user", content: input, images } : { role: "user", content: input });
+      this.turnCalls.clear();
       if (this.session.title === "New session") this.session.title = input.replace(/\s+/g, " ").slice(0, 60);
       return await this.loop(signal);
     } finally {
@@ -269,6 +271,7 @@ export class Agent {
       signal,
       session: this.session,
       readFiles: this.readFiles,
+      turnCalls: this.turnCalls.set(tool.name, (this.turnCalls.get(tool.name) ?? 0) + 1),
       runSubagent: this.opts.isSubagent ? undefined : (d, p, def) => this.runSubagent(d, p, signal, def),
     };
     try {
