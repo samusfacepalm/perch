@@ -14,7 +14,8 @@ export interface ToolCall {
 export type Message =
   | { role: "system"; content: string }
   | { role: "user"; content: string; images?: string[] } // images: file paths, encoded only when sent
-  | { role: "assistant"; content: string; reasoning_content?: string; tool_calls?: ToolCall[] }
+  // thinking_blocks: Claude's signed thinking blocks, replayed unchanged (see anthropic.ts)
+  | { role: "assistant"; content: string; reasoning_content?: string; thinking_blocks?: unknown[]; tool_calls?: ToolCall[] }
   | { role: "tool"; tool_call_id: string; content: string };
 
 export interface ToolSpec {
@@ -54,7 +55,7 @@ export interface ChatRequest {
 }
 
 const USER_AGENT = "perch/0.1.0";
-const RETRY_STATUS = new Set([408, 409, 429, 500, 502, 503, 504, 529]);
+export const RETRY_STATUS = new Set([408, 409, 429, 500, 502, 503, 504, 529]);
 const MAX_ATTEMPTS = 8;
 
 export class ProviderError extends Error {
@@ -118,6 +119,7 @@ export async function chat(req: ChatRequest): Promise<Completion> {
 
 async function chatOnce(req: ChatRequest): Promise<Completion> {
   const { provider, model } = req;
+  if (provider.format === "anthropic") return (await import("./anthropic.js")).chatAnthropic(req);
   if (!provider.apiKey && !/localhost|127\.0\.0\.1/.test(provider.baseURL)) {
     throw new ProviderError(`No API key for ${provider.name}. Set it in the environment or in OpenCode.`);
   }

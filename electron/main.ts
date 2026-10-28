@@ -67,6 +67,8 @@ function snapshot(agent: Agent) {
     permissionMode: s.permissionMode ?? config.defaultMode,
     thinking: s.thinking ?? "high",
     keepGoing: !!agent.opts.autoContinue,
+    undo: s.checkpoints?.at(-1)?.text ?? null, // the message an undo would take back
+    undos: s.checkpoints?.length ?? 0,
     compactAt: Math.min(context * config.compactAt, config.compactTokens),
     contextTokens: agent.contextTokens,
     contextWindow: context,
@@ -209,7 +211,7 @@ function registerIpc() {
     let models: string[] = [];
     let warning = "";
     try {
-      models = await fetchModels(baseURL, opts.key.trim());
+      models = await fetchModels(baseURL, opts.key.trim(), 8000, existing?.format);
     } catch (err: any) {
       // Some providers don't offer GET /models; a 401/403 means the key itself is bad.
       if (/^40[13]/.test(String(err?.message))) throw new Error(`The provider rejected this key (${err.message.slice(0, 160)})`);
@@ -342,14 +344,25 @@ function registerIpc() {
     return level;
   });
 
-  ipcMain.handle("session:setMode", (_e, id: string, mode: "ask" | "edits" | "all") => {
+  ipcMain.handle("session:setMode", (_e, id: string, mode: "ask" | "edits" | "all" | "plan") => {
     const a = getAgent(id);
     a.session.permissionMode = mode;
     // Remembered: new sessions, and old ones that never chose, start in the last mode picked.
-    config.defaultMode = mode;
-    saveSetting("defaultMode", mode);
+    // Plan mode is for one piece of work, so it is never the default.
+    if (mode !== "plan") {
+      config.defaultMode = mode;
+      saveSetting("defaultMode", mode);
+    }
     saveSessionSoon(a.session);
     return mode;
+  });
+
+  // Undo the last message: files back as they were, the message back in the input box.
+  ipcMain.handle("session:undo", async (_e, id: string) => {
+    const a = getAgent(id);
+    const r = await a.undo();
+    send(id, "snapshot", { snapshot: snapshot(a) });
+    return r;
   });
 
   ipcMain.handle("session:setAuto", (_e, id: string, on: boolean) => {

@@ -25,9 +25,20 @@ export interface Session {
   todos: Todo[];
   compactions: number;
   summary?: string; // latest compaction summary, folded into the next one
-  permissionMode?: "ask" | "edits" | "all"; // what runs without asking (see Agent.permit)
+  permissionMode?: "ask" | "edits" | "all" | "plan"; // what runs without asking (see Agent.permit); plan: read and research only
+  planNoted?: boolean; // whether the model was last told that plan mode is on
+  checkpoints?: Checkpoint[]; // file snapshots taken before each message, for undo (snapshot.ts)
   thinking?: "off" | "low" | "high" | "max"; // reasoning effort; unset means the provider default
   usage: SessionUsage;
+}
+
+export interface Checkpoint {
+  tree: string; // git tree of the folder just before the message was sent
+  text: string; // the message, to put back in the input box on undo
+  messages: number; // session.messages length before the message
+  history: number; // session.history length before the message
+  compactions: number; // compaction count then; after a compaction the conversation can't be cut back
+  at: string;
 }
 
 export interface ModelUsage extends Usage {

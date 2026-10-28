@@ -201,6 +201,21 @@ export function App({ config, session, yolo, autoContinue, firstPrompt, models }
         return;
       case "todos":
         return add({ kind: "note", text: formatTodos(session.todos) });
+      case "undo":
+        try {
+          const r = await agent.undo();
+          setInput(r.text);
+          setCursor(r.text.length);
+          return add({ kind: "note", text: `Undone: ${r.files.length ? `${r.files.length} file(s) put back: ${r.files.slice(0, 8).join(", ")}${r.files.length > 8 ? "…" : ""}` : "no files had changed"}.${r.conversation ? " The message is back in the input box." : " The conversation was summarised since, so Perch was told instead."}`, color: "yellow" });
+        } catch (e: any) {
+          return add({ kind: "note", text: e.message, color: "red" });
+        }
+      case "plan": {
+        const on = session.permissionMode !== "plan";
+        session.permissionMode = on ? "plan" : undefined;
+        saveSession(session);
+        return add({ kind: "note", text: on ? "Plan mode on: Perch reads, searches and presents a plan, and changes nothing. /plan again to let it carry the plan out." : "Plan mode off: Perch can make changes again." });
+      }
       case "auto":
         auto.current = !auto.current;
         agent.opts.autoContinue = auto.current;
@@ -245,6 +260,8 @@ export function App({ config, session, yolo, autoContinue, firstPrompt, models }
 /status                  folder, model, context use, cache hits
 /todos                   show the todo list
 /compact                 summarise the conversation now
+/plan                    toggle plan mode: read and plan only, change nothing
+/undo                    put files back as they were before your last message, and take it back
 /auto                    toggle auto-continue while todos are open
 /cd <folder>             change working folder (e.g. move a scratch session into a project)
 /sessions  /delete <id>  list or delete sessions

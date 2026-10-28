@@ -56,7 +56,10 @@ before(async () => {
 
 after(() => {
   server.close();
-  fs.rmSync(tmp, { recursive: true, force: true });
+  // Background snapshots of the test folders may still be finishing.
+  try {
+    fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+  } catch {}
 });
 
 async function setup(reasoning = true) {

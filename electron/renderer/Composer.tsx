@@ -20,13 +20,14 @@ export type Thinking = "off" | "low" | "high" | "max";
 const THINKING: Thinking[] = ["off", "low", "high", "max"];
 const THINKING_HELP = "Thinking: how long the model reasons before answering. Off is fastest and cheapest; Max takes longest and suits hard problems.";
 
-export type Mode = "ask" | "edits" | "all";
-const MODES: Mode[] = ["ask", "edits", "all"];
-const MODE_LABEL: Record<Mode, string> = { ask: "Ask", edits: "Auto-edit", all: "Full auto" };
+export type Mode = "ask" | "edits" | "all" | "plan";
+const MODES: Mode[] = ["ask", "edits", "all", "plan"];
+const MODE_LABEL: Record<Mode, string> = { ask: "Ask", edits: "Auto-edit", all: "Full auto", plan: "Plan" };
 const MODE_HELP: Record<Mode, string> = {
   ask: "Ask: Perch asks before editing files, running commands or using MCP tools.",
   edits: "Auto-edit: file edits and writes go ahead; commands and MCP tools still ask.",
   all: "Full auto: everything goes ahead, except commands that delete in bulk, rewrite git history or publish, which still ask.",
+  plan: "Plan: Perch only reads, searches and looks things up, then presents a plan. Nothing is changed until you switch to another mode.",
 };
 
 const drafts = new Map<string, string>();
@@ -237,6 +238,8 @@ export function Composer(p: Props) {
                 <path d="M6 1.5l4 1.6v2.8c0 2.4-1.7 4-4 4.6-2.3-.6-4-2.2-4-4.6V3.1z" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
               ) : p.mode === "edits" ? (
                 <path d="M2 10l.6-2.4L8 2.2l1.8 1.8-5.4 5.4zM7 3.2l1.8 1.8" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+              ) : p.mode === "plan" ? (
+                <path d="M3 2.5h6M3 6h6M3 9.5h4" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
               ) : (
                 <path d="M6.6 1L2.5 7h3l-.6 4L9.5 5h-3z" fill="currentColor" />
               )}

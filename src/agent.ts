@@ -24,11 +24,15 @@ import { makeTaskTool } from "./tools/task.js";
 import { makeSkillTool } from "./tools/skill.js";
 import { makeMcpTools } from "./tools/mcp.js";
 import { inspectImage } from "./tools/image.js";
+import { webSearch, webFetch } from "./tools/web.js";
 import { makePlayTool, type PlayRunner } from "./tools/play.js";
 import { configuredServers } from "./mcpClient.js";
 import { loadAgents, loadSkills, type AgentDef } from "./instructions.js";
+import { runHooks } from "./hooks.js";
+import { commandParts, judge, loadRules } from "./rules.js";
+import { restore, snapshot } from "./snapshot.js";
 
-export const BASE_TOOLS: Tool[] = [read, edit, write, bash, glob, grep, list, todowrite, inspectImage];
+export const BASE_TOOLS: Tool[] = [read, edit, write, bash, glob, grep, list, todowrite, inspectImage, webSearch, webFetch];
 
 // The full tool set for a folder: the base tools, plus skills and named subagents found for it.
 export function toolsFor(cwd: string, playRunner?: PlayRunner): Tool[] {
@@ -42,9 +46,10 @@ export function toolsFor(cwd: string, playRunner?: PlayRunner): Tool[] {
   ];
 }
 // Calls that may run side by side. Subagents are included so several can work at once.
-const PARALLEL = new Set(["read", "glob", "grep", "list", "task", "inspect_image", "mcp_tools", "skill"]);
+const PARALLEL = new Set(["read", "glob", "grep", "list", "task", "inspect_image", "mcp_tools", "skill", "web_search"]);
 
-export type Decision = { allow: boolean; always?: boolean; feedback?: string };
+// refused: why Perch itself refused the call (plan mode, a rule, a hook), as opposed to the user.
+export type Decision = { allow: boolean; always?: boolean; feedback?: string; refused?: string };
 
 export interface AgentEvents {
   onStream?(e: StreamEvent): void;
@@ -157,7 +162,15 @@ export class Agent {
         this.events.onStatus?.(`Idle for ${this.idleHours.toFixed(1)} hours with ${Math.round(this.contextTokens / 1000)}K of context: summarising before your message…`);
         await this.compact(signal);
       }
+      const hook = this.opts.isSubagent ? undefined : await runHooks(this.config.hooks, "UserPromptSubmit", this.hookBase(), { prompt: input });
+      if (hook?.block) {
+        this.events.onStatus?.(`A hook blocked this message: ${hook.block}`);
+        return `[blocked by a hook: ${hook.block}]`;
+      }
+      this.notePlanMode();
+      if (!this.opts.isSubagent) this.checkpoint(input);
       this.push(images?.length ? { role: "user", content: input, images } : { role: "user", content: input });
+      if (hook?.context.length) this.push({ role: "user", content: `Context from the user's hooks:\n${hook.context.join("\n\n")}` }, false);
       this.turnCalls.clear();
       if (this.session.title === "New session") this.session.title = input.replace(/\s+/g, " ").slice(0, 60);
       return await this.loop(signal);
@@ -173,9 +186,62 @@ export class Agent {
     }
   }
 
+  private hookBase() {
+    return { session_id: this.session.id, cwd: this.session.cwd };
+  }
+
+  get mode() {
+    return this.session.permissionMode ?? this.config.defaultMode;
+  }
+
+  // Tell the model when plan mode starts or ends. The note is a message of its own, so the
+  // system prompt and the cached history stay as they were.
+  private notePlanMode() {
+    const on = this.mode === "plan";
+    if (on === !!this.session.planNoted) return;
+    this.session.planNoted = on;
+    this.push({ role: "user", content: on ? PLAN_ON : PLAN_OFF }, false);
+  }
+
+  // Record the folder before a message, so the message's changes can be undone. It runs while
+  // the model is thinking; tools wait for it before they run, so nothing changes files first.
+  private checkpointing?: Promise<void>;
+  private checkpoint(text: string) {
+    const at = { text, messages: this.session.messages.length, history: this.session.history.length, compactions: this.session.compactions, at: new Date().toISOString() };
+    this.checkpointing = snapshot(this.session.cwd).then((tree) => {
+      if (!tree) return;
+      const list = (this.session.checkpoints ??= []);
+      list.push({ tree, ...at });
+      if (list.length > 50) list.splice(0, list.length - 50);
+    });
+  }
+
+  // Undo the last message: put the folder back as it was before it, and take the message and
+  // everything after it out of the conversation. Returns the message text for the input box.
+  async undo(): Promise<{ text: string; files: string[]; conversation: boolean }> {
+    if (this.busy) throw new Error("Perch is working; stop it before undoing.");
+    await this.checkpointing;
+    const cp = this.session.checkpoints?.pop();
+    if (!cp) throw new Error("Nothing to undo in this session.");
+    const files = await restore(this.session.cwd, cp.tree);
+    // After a summary the old messages are gone from what the model sees, so the conversation
+    // can't be cut back; the model is told instead.
+    const conversation = cp.compactions === this.session.compactions && cp.messages <= this.session.messages.length;
+    if (conversation) {
+      this.session.messages.length = cp.messages;
+      this.session.history.length = Math.min(cp.history, this.session.history.length);
+    } else {
+      this.push({ role: "user", content: `The user undid the request "${cp.text.slice(0, 300)}": the files are back as they were before it (${files.length} changed). Treat that work as not done.` }, false);
+    }
+    this.lastTokens = 0;
+    if (!this.opts.isSubagent) (this.opts.save ?? saveSession)(this.session);
+    return { text: cp.text, files, conversation };
+  }
+
   private async loop(signal: AbortSignal): Promise<string> {
     const { provider, model } = resolveModel(this.config, this.session.model);
     let nudges = 0;
+    let stopHooks = 0;
     const recent: string[] = [];
 
     // Compaction trigger, after DeepSeek Harness: leave room for a full reply plus a margin.
@@ -233,6 +299,15 @@ export class Agent {
           nudges++;
           this.push({ role: "user", content: continuationNote(formatTodos(this.session.todos)) }, false);
           continue;
+        }
+        // A Stop hook can send the agent back to work (exit code 2), a few times at most.
+        if (!this.opts.isSubagent && this.config.hooks?.Stop && stopHooks < 3) {
+          const stop = await runHooks(this.config.hooks, "Stop", this.hookBase(), { stop_hook_active: stopHooks > 0, last_message: res.message.content });
+          if (stop.block) {
+            stopHooks++;
+            this.push({ role: "user", content: `A hook asks you to keep going: ${stop.block}` }, false);
+            continue;
+          }
         }
         return res.message.content;
       }
@@ -293,10 +368,18 @@ export class Agent {
     }
     const summary = safe(() => tool.summarize(args)) ?? "";
     this.events.onToolStart?.(call, summary);
+    await this.checkpointing; // the undo snapshot is taken before any tool changes a file
 
-    const decision = await this.permit(tool, summary, args);
+    const pre = this.config.hooks?.PreToolUse ? await runHooks(this.config.hooks, "PreToolUse", this.hookBase(), { tool_name: tool.name, tool_input: args }) : undefined;
+    const decision: Decision = pre?.block
+      ? { allow: false, refused: `A hook blocked it: ${pre.block}` }
+      : pre?.decision === "allow" && !this.planBlocks(tool, args)
+        ? { allow: true }
+        : await this.permit(tool, summary, args);
     if (!decision.allow) {
-      const output = `The user declined this ${tool.name} call.${decision.feedback ? ` They said: ${decision.feedback}` : " Ask them how to proceed, or try another way."}`;
+      const output = decision.refused
+        ? `This ${tool.name} call was refused. ${decision.refused}`
+        : `The user declined this ${tool.name} call.${decision.feedback ? ` They said: ${decision.feedback}` : " Ask them how to proceed, or try another way."}`;
       this.events.onToolEnd?.(call, { output, error: true, title: "declined" });
       return output;
     }
@@ -311,6 +394,10 @@ export class Agent {
     };
     try {
       const result = await tool.run(args, ctx);
+      if (this.config.hooks?.PostToolUse) {
+        const post = await runHooks(this.config.hooks, "PostToolUse", this.hookBase(), { tool_name: tool.name, tool_input: args, tool_response: result.output.slice(0, 100_000) });
+        if (post.block) result.output += `\n\n[Feedback from the user's hook: ${post.block}]`;
+      }
       result.output = spillLongOutput(result.output, tool.name, !!ctx.runSubagent);
       if (result.images?.length) this.toolImages.push(...result.images);
       this.events.onToolEnd?.(call, result);
@@ -323,16 +410,33 @@ export class Agent {
     }
   }
 
+  // In plan mode only reading and research run. Returns why a call is refused, if it is.
+  private planBlocks(tool: Tool, args: any): string | undefined {
+    if (this.mode !== "plan" || PLAN_TOOLS.has(tool.name)) return undefined;
+    if (tool.name === "bash") {
+      const parts = commandParts(String(args.command ?? ""));
+      if (parts.length && parts.every((p) => PLAN_BASH.some((c) => p === c || p.startsWith(c + " "))) && !/[>`$]/.test(String(args.command))) return undefined;
+    }
+    return "Plan mode is on, so only reading and research run. Finish the plan and present it; the user will switch plan mode off to have it carried out.";
+  }
+
   private async permit(tool: Tool, summary: string, args: any): Promise<Decision> {
+    const plan = this.planBlocks(tool, args);
+    if (plan) return { allow: false, refused: plan };
+    // Rules from Claude Code's settings and Perch's config. A deny rule holds even in yolo mode.
+    const ruled = judge(loadRules(this.session.cwd, this.config.rules), tool.name, args, this.session.cwd);
+    if (ruled?.action === "deny") return { allow: false, refused: `A permission rule denies it (${ruled.rule}).` };
     if (this.opts.yolo) return { allow: true };
-    const rule = this.config.permissions[tool.name] ?? "ask";
-    if (rule === "deny") return { allow: false, feedback: `${tool.name} is disabled in the configuration.` };
+    if (ruled?.action === "allow") return { allow: true };
+    const rule = ruled?.action === "ask" ? "ask" : (this.config.permissions[tool.name] ?? "ask");
+    if (rule === "deny") return { allow: false, refused: `${tool.name} is switched off in the configuration.` };
     if (rule === "allow") return { allow: true };
     // Opening a page runs it in a browser sandbox, not on the PC itself, so it never asks.
     if (tool.name === "play" && typeof args.page === "string") return { allow: true };
     // Session permission modes: "edits" lets file changes through, "all" lets everything
-    // through except shell commands that look destructive, which still ask.
-    const mode = this.session.permissionMode ?? this.config.defaultMode;
+    // through except shell commands that look destructive, which still ask. An "ask" rule
+    // asks in every mode.
+    const mode = ruled?.action === "ask" ? "ask" : this.mode;
     if (mode === "all" && !(tool.name === "bash" && looksDestructive(String(args.command ?? "")))) return { allow: true };
     if ((mode === "edits" || mode === "all") && (tool.name === "write" || tool.name === "edit")) return { allow: true };
     if (tool.name === "bash") {
@@ -346,8 +450,8 @@ export class Agent {
       if (d.allow && d.always) this.alwaysAllow.add(key);
       return d;
     }
-    // "Always" for an MCP call covers that server only.
-    const key = tool.name === "mcp_call" ? `mcp:${args.server}` : tool.name;
+    // "Always" for an MCP call covers that server only, and for a fetch that site only.
+    const key = tool.name === "mcp_call" ? `mcp:${args.server}` : tool.name === "web_fetch" ? `web:${hostOf(args.url)}` : tool.name;
     if (this.alwaysAllow.has(key)) return { allow: true };
     const d = (await this.events.ask?.(tool.name, summary, args)) ?? { allow: false };
     if (d.allow && d.always) this.alwaysAllow.add(key);
@@ -444,6 +548,9 @@ export class Agent {
       `## Todo list (current)\n${formatTodos(this.session.todos)}`,
       files ? `## Files read so far (re-read before editing if unsure of their contents)\n${files}` : "",
     ].filter(Boolean).join("\n\n");
+    // Claude's thinking blocks are bound to the conversation before them, which the summary
+    // replaces, so the kept messages go on without them (their text and tool calls stay).
+    for (const m of tail) if (m.role === "assistant") delete m.thinking_blocks;
     const carryOn = tail.length ? [] : [{ role: "user" as const, content: "Continue if you have next steps, or stop and ask if you are unsure how to proceed." }];
     this.session.messages = [system, { role: "user", content: summary }, ...tail, ...carryOn];
     this.session.history.push({ role: "user", content: `[compacted]\n${summary}` });
@@ -464,6 +571,7 @@ export class Agent {
       } catch {}
     }
     const child = newSession(this.session.cwd, model);
+    child.permissionMode = this.session.permissionMode; // a subagent in plan mode only reads too
     const role = def ? `\n\n# Your role: ${def.name}\n${def.prompt}` : "";
     child.messages.push({ role: "system", content: systemPrompt(this.session.cwd) + "\n\n" + SUBAGENT_PROMPT + role });
     const sub = new Agent({
@@ -492,7 +600,14 @@ export class Agent {
   }
 }
 
-const MAX_STEPS_PROMPT = `You have reached the maximum number of steps for this request. Tools are now disabled. Reply with text only:
+// Plan mode: what may run, and what the model is told when it starts and ends.
+const PLAN_TOOLS = new Set(["read", "glob", "grep", "list", "todowrite", "task", "skill", "mcp_tools", "inspect_image", "web_search", "web_fetch"]);
+const PLAN_BASH = ["ls", "pwd", "cat", "head", "tail", "wc", "git status", "git diff", "git log", "git show", "git branch", "node --version", "python --version"];
+const PLAN_ON = `Plan mode is now on. Research and plan only: read files, search, look things up, and run read-only commands. Don't edit files or run anything that changes them; those calls will be refused.
+When you have a plan, present it: the steps in order, the files each one touches, and how you'll check the result. Then stop. The user will switch plan mode off when they want it carried out.`;
+const PLAN_OFF = "Plan mode is now off: you can make changes again. If you presented a plan and the user's next message approves it, carry it out.";
+
+const MAX_STEPS_PROMPT =`You have reached the maximum number of steps for this request. Tools are now disabled. Reply with text only:
 1. What is done and verified.
 2. What remains, and exactly where you stopped.
 3. What to do next.
@@ -572,6 +687,14 @@ export function repairToolPairs(messages: Message[]) {
     const filler: Message[] = missing.map((c) => ({ role: "tool", tool_call_id: c.id, content: "[not run: interrupted before this call finished]" }));
     messages.splice(j, 0, ...filler);
     i = j + filler.length - 1;
+  }
+}
+
+function hostOf(url: unknown): string {
+  try {
+    return new URL(String(url)).hostname;
+  } catch {
+    return String(url);
   }
 }
 

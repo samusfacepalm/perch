@@ -35,6 +35,13 @@ export const PRICES: Record<string, Price> = {
   "opencode-go/mimo-v2.6-pro": { input: 0.435, cached: 0.003625, output: 0.87 },
   "opencode-go/minimax-m3.1-flash": { input: 0.15, cached: 0.015, output: 0.6 },
   "opencode-go/hy4-preview": { input: 0.834, cached: 0.042, output: 2.501 },
+  // Anthropic, 6 Oct 2026. Cache writes (1.25x input) are counted at the input price, and
+  // Haiku's higher rate above 100K prompt tokens isn't modelled, so long Claude sessions read
+  // slightly low.
+  "anthropic/claude-opus-5-5": { input: 4, cached: 0.2, output: 20 },
+  "anthropic/claude-sonnet-5-5": { input: 2, cached: 0.2, output: 10 },
+  "anthropic/claude-haiku-5-5": { input: 0.1, cached: 0.01, output: 0.5 },
+  "anthropic/claude-fable-5-1": { input: 10, cached: 0.25, output: 50 },
 };
 
 // DeepSeek peak hours: 01:00-04:00 and 06:00-10:00 UTC, Monday to Friday.

@@ -10,6 +10,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { Price } from "./pricing.js";
+import type { HookConfig } from "./hooks.js";
 
 export interface ModelInfo {
   id: string; // id sent to the API
@@ -35,6 +36,7 @@ export interface Provider {
   // because the API rejects anything else. Perch's own config can still add models.
   fixedModels?: boolean;
   local?: boolean; // runs on this machine: free, and no key needed
+  format?: "openai" | "anthropic"; // the API's request format; OpenAI chat completions unless set
 }
 
 export interface PerchConfig {
@@ -52,6 +54,9 @@ export interface PerchConfig {
   // summarised (by the app's hourly check, or when you come back to it). DeepSeek's cache has
   // expired by then, so the next message would otherwise pay full price for the whole context.
   defaultMode: "ask" | "edits" | "all"; // permission mode for sessions that haven't picked one; the last one chosen
+  // Permission rules in Claude Code's syntax, added to those in Claude Code's settings (rules.ts).
+  rules?: { allow?: string[]; ask?: string[]; deny?: string[] };
+  hooks?: HookConfig; // commands run before and after tools, on each prompt and on stopping (hooks.ts)
   idleCompact: boolean;
   idleCompactHours: number;
   idleCompactMinTokens: number;
@@ -146,6 +151,20 @@ function builtinProviders(): Record<string, Provider> {
         go("hy4-preview"),
       ],
     },
+    // Claude through Anthropic's Messages API (anthropic.ts). Every current model has a 1M
+    // context and 128K output, sees images and always thinks.
+    anthropic: {
+      id: "anthropic",
+      name: "Anthropic",
+      baseURL: "https://api.anthropic.com",
+      format: "anthropic",
+      models: [
+        ["claude-opus-5-5", "Claude Opus 5.5"],
+        ["claude-sonnet-5-5", "Claude Sonnet 5.5"],
+        ["claude-haiku-5-5", "Claude Haiku 5.5"],
+        ["claude-fable-5-1", "Claude Fable 5.1"],
+      ].map(([id, name]) => ({ ...model(id, name, M, 128_000, true), vision: true })),
+    },
     "ollama-cloud": {
       id: "ollama-cloud",
       name: "Ollama Cloud",
@@ -163,6 +182,7 @@ function builtinProviders(): Record<string, Provider> {
 
 const ENV_KEYS: Record<string, string[]> = {
   deepseek: ["DEEPSEEK_API_KEY"],
+  anthropic: ["ANTHROPIC_API_KEY"],
   "opencode-go": ["OPENCODE_GO_API_KEY", "OPENCODE_API_KEY"],
   "ollama-cloud": ["OLLAMA_API_KEY"],
   openrouter: ["OPENROUTER_API_KEY"],
@@ -249,8 +269,10 @@ export function loadConfig(): PerchConfig {
 
   for (const [id, p] of Object.entries(providers)) {
     if (/localhost|127\.0\.0\.1|\[::1\]/.test(p.baseURL)) p.local = true;
-    // Perch speaks the OpenAI chat format only; Anthropic-format endpoints are skipped.
-    if (!p.baseURL || /\/anthropic(\/|$)/.test(p.baseURL)) delete providers[id];
+    // Endpoints that speak Anthropic's format (OpenCode's anthropic providers, proxies under
+    // /anthropic) go through anthropic.ts.
+    if (/\/anthropic(\/|$)|api\.anthropic\.com/.test(p.baseURL)) p.format = "anthropic";
+    if (!p.baseURL) delete providers[id];
   }
 
   return {
@@ -269,6 +291,8 @@ export function loadConfig(): PerchConfig {
       mcp_call: "ask",
       play: "ask",
       inspect_image: "allow",
+      web_search: "allow",
+      web_fetch: "ask",
       write: "ask",
       edit: "ask",
       bash: "ask",
@@ -286,6 +310,8 @@ export function loadConfig(): PerchConfig {
     idleCompactHours: own.idleCompactHours ?? 2.5,
     idleCompactMinTokens: own.idleCompactMinTokens ?? 500_000,
     prices: own.prices,
+    rules: own.rules,
+    hooks: own.hooks,
   };
 }
 
@@ -321,15 +347,21 @@ export function modelChoices(config: PerchConfig): ModelChoice[] {
       provider: p.name,
       hasKey: !!p.apiKey || !!p.local,
       vision: !!m.vision,
-      thinkingLevels: p.id === "deepseek" && m.reasoning, // see thinkingParams in provider.ts
+      // see thinkingParams in provider.ts; for Claude the level sets the effort (anthropic.ts)
+      thinkingLevels: (p.id === "deepseek" || p.format === "anthropic") && m.reasoning,
     })),
   );
 }
 
-// Ask a provider which models it serves (OpenAI-style GET /models). Also checks the key.
-export async function fetchModels(baseURL: string, apiKey?: string, timeoutMs = 8000): Promise<string[]> {
-  const res = await fetch(baseURL.replace(/\/$/, "") + "/models", {
-    headers: { "user-agent": "perch/0.1.0", ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
+// Ask a provider which models it serves (GET /models). Also checks the key.
+export async function fetchModels(baseURL: string, apiKey?: string, timeoutMs = 8000, format: Provider["format"] = "openai"): Promise<string[]> {
+  const anthropic = format === "anthropic";
+  const base = baseURL.replace(/\/$/, "");
+  const res = await fetch(anthropic ? base.replace(/\/v1$/, "") + "/v1/models" : base + "/models", {
+    headers: {
+      "user-agent": "perch/0.1.0",
+      ...(apiKey ? (anthropic ? { "x-api-key": apiKey, "anthropic-version": "2023-06-01" } : { authorization: `Bearer ${apiKey}` }) : {}),
+    },
     signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) throw new Error(`${res.status}: ${(await res.text().catch(() => "")).slice(0, 300)}`);

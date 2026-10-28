@@ -46,8 +46,10 @@ interface Snapshot {
   };
   compactions: number;
   compactAt: number;
-  permissionMode?: "ask" | "edits" | "all";
+  permissionMode?: "ask" | "edits" | "all" | "plan";
   keepGoing?: boolean;
+  undo?: string | null; // the message an undo would take back
+  undos?: number;
   thinking?: "off" | "low" | "high" | "max";
   contextTokens: number;
   contextWindow: number;
@@ -1328,6 +1330,25 @@ export function App() {
               <button className="chip" disabled={snap.busy} onClick={() => api.compact(snap.id)} title="Summarise the conversation now">
                 compact
               </button>
+              {!!snap.undo && (
+                <button
+                  className="chip"
+                  disabled={snap.busy}
+                  title={`Undo your last message, "${snap.undo.slice(0, 80)}": put the files back as they were before it, and take it and Perch's reply out of the conversation. ${snap.undos} message${snap.undos === 1 ? "" : "s"} can be undone.`}
+                  onClick={async () => {
+                    if (!confirm(`Undo "${snap.undo!.slice(0, 120)}"?\n\nFiles Perch changed since then go back to how they were, and files it created are deleted.`)) return;
+                    try {
+                      const r = await api.undo(snap.id);
+                      bus.emit("unsent", { sessionId: snap.id, text: r.text });
+                      update(snap.id, (l) => ({ ...l, status: r.files.length ? `Undone: ${r.files.length} file${r.files.length === 1 ? "" : "s"} put back (${r.files.slice(0, 4).join(", ")}${r.files.length > 4 ? "…" : ""}).` : "Undone. No files had changed." }));
+                    } catch (e: any) {
+                      update(snap.id, (l) => ({ ...l, error: String(e?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, "") }));
+                    }
+                  }}
+                >
+                  undo
+                </button>
+              )}
               {phone ? (
                 <>
                   <button className="phone-btn" onClick={() => setPanel(true)} title="Plan, usage, shots and setup">

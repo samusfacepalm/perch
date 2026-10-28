@@ -3,8 +3,8 @@
 //   - global instructions: ~/.perch/AGENTS.md, ~/.claude/CLAUDE.md, ~/.config/opencode/AGENTS.md
 //   - project instructions: AGENTS.md / CLAUDE.md / PERCH.md from the folder up to home
 //   - Claude Code's memory index for the project (~/.claude/projects/<folder>/memory/MEMORY.md)
-//   - skills (SKILL.md folders) from Claude Code, OpenCode and Perch, loaded on demand
-//   - custom subagents (markdown with frontmatter) from Claude Code, OpenCode and Perch
+//   - skills (SKILL.md folders) from Claude Code and its plugins, OpenCode and Perch, loaded on demand
+//   - custom subagents (markdown with frontmatter) from Claude Code and its plugins, OpenCode and Perch
 // Codex's AGENTS.md is deliberately not read: it defines Codex's own persona.
 
 import fs from "node:fs";
@@ -112,10 +112,45 @@ export function loadInstructions(cwd: string, extra: string[] = []): Instruction
   return out;
 }
 
+export interface ClaudePlugin {
+  name: string; // "blockbench-mcp"
+  root: string; // its install folder, ${CLAUDE_PLUGIN_ROOT}
+}
+
+function readJSON(file: string): any {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8").replace(/^﻿/, ""));
+  } catch {
+    return undefined;
+  }
+}
+
+// Claude Code plugins that are installed and switched on for this folder. Each can bring
+// skills, agents and MCP servers, which Perch uses too. Their hooks are left alone: they are
+// written for Claude Code's session and would change how Perch talks.
+export function claudePlugins(cwd: string): ClaudePlugin[] {
+  const installed = readJSON(path.join(HOME, ".claude", "plugins", "installed_plugins.json"))?.plugins ?? {};
+  const enabled: Record<string, boolean> = {
+    ...readJSON(path.join(HOME, ".claude", "settings.json"))?.enabledPlugins,
+    ...readJSON(path.join(cwd, ".claude", "settings.json"))?.enabledPlugins,
+    ...readJSON(path.join(cwd, ".claude", "settings.local.json"))?.enabledPlugins,
+  };
+  const here = path.resolve(cwd).toLowerCase();
+  const out: ClaudePlugin[] = [];
+  for (const [key, entries] of Object.entries<any>(installed)) {
+    if (!enabled[key]) continue;
+    const list = Array.isArray(entries) ? entries : [entries];
+    const entry = list.find((e: any) => e?.scope === "user" || !e?.projectPath || path.resolve(e.projectPath).toLowerCase() === here);
+    if (entry?.installPath && fs.existsSync(entry.installPath)) out.push({ name: key.split("@")[0], root: entry.installPath });
+  }
+  return out;
+}
+
 function skillDirs(cwd: string): [string, string][] {
   return [
     [path.join(HOME, ".perch", "skills"), "Perch"],
     [path.join(HOME, ".claude", "skills"), "Claude Code"],
+    ...claudePlugins(cwd).map((p): [string, string] => [path.join(p.root, "skills"), `Claude Code plugin ${p.name}`]),
     [path.join(HOME, ".config", "opencode", "skills"), "OpenCode"],
     [path.join(cwd, ".claude", "skills"), "project"],
     [path.join(cwd, ".opencode", "skills"), "project"],
@@ -166,6 +201,7 @@ export function loadAgents(cwd: string): AgentDef[] {
   const dirs = [
     path.join(HOME, ".perch", "agents"),
     path.join(HOME, ".claude", "agents"),
+    ...claudePlugins(cwd).map((p) => path.join(p.root, "agents")),
     path.join(HOME, ".config", "opencode", "agent"),
     path.join(HOME, ".config", "opencode", "agents"),
     path.join(cwd, ".claude", "agents"),

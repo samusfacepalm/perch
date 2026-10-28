@@ -1,6 +1,6 @@
 # perch
 
-A small terminal coding agent for DeepSeek, OpenCode Go and other OpenAI-compatible models.
+A small coding agent for DeepSeek, Claude, OpenCode Go and other OpenAI-compatible models, in the terminal or as a desktop app.
 The interface follows Claude Code and the old OpenCode. The parts that decide result quality
 come from reading the source of OpenCode (v1.19.4) and DeepSeek Harness (deepseek-ai/deepseek-harness).
 
@@ -26,14 +26,19 @@ perch sessions [--all]
 ```
 
 In the UI: `/help`, `/model`, `/status` (context use and cache hit rate), `/todos`, `/compact`,
-`/auto` (keep going while todos are open), `/cd <folder>` (move a scratch session into a project),
+`/auto` (keep going while todos are open), `/plan` (plan mode), `/undo`, `/cd <folder>` (move a scratch session into a project),
 `/sessions`, `/exit`. Esc interrupts. Ctrl+J adds a new line.
 
 ## Keys
 
 Nothing is copied. Keys are read at start-up from environment variables (`DEEPSEEK_API_KEY`,
-`OPENCODE_GO_API_KEY`), then OpenCode's `auth.json`, then OpenCode's `opencode.json`.
-Providers and models in `opencode.json` are imported too, except Anthropic-format endpoints.
+`ANTHROPIC_API_KEY`, `OPENCODE_GO_API_KEY`), then OpenCode's `auth.json`, then OpenCode's `opencode.json`.
+Providers and models in `opencode.json` are imported too, Anthropic-format endpoints included.
+
+**Claude** (Opus 5.5, Sonnet 5.5, Haiku 5.5, Fable 5.1) goes through Anthropic's own Messages API,
+with the conversation cached on every request and Claude's thinking replayed between turns. The
+thinking level sets Claude's effort, and a request a safety check declines is retried on a
+fallback model.
 
 ## Config: `~/.perch/config.json` (optional)
 
@@ -67,6 +72,8 @@ parents, plus `~/.perch/AGENTS.md`.
 - **Todo list** that survives compaction, with optional auto-continue while items are open.
 - **Subagents** (`task`) with fresh context; several run in parallel.
 - **Long tool output** goes to `~/.perch/tool-output`; the model gets the head, the tail and the path.
+- **Web search and fetch**: search goes to Exa's public endpoint (no key, as OpenCode does), and
+  pages come back as text with headings, lists, links and code kept.
 - **Edit matching** (OpenCode): exact first, then line-trimmed, block-anchor, whitespace,
   indentation, escape and boundary matchers. A loose match is accepted only when it is unique and
   not much larger than what the model wrote. Read-before-edit is enforced, and so is the check
@@ -77,6 +84,23 @@ parents, plus `~/.perch/AGENTS.md`.
   without it). Unanswered tool calls get filler results after an interrupt. Repeated identical
   calls trigger a warning. Retries use backoff. At the step limit, tools are withdrawn and the
   model writes a hand-over.
+
+## Plan mode, undo, rules and hooks
+
+- **Plan mode** (the mode pill, or `/plan`): Perch reads, searches and looks things up, then
+  presents a plan and changes nothing. Switch to another mode to have it carried out.
+- **Undo** (the header's undo chip, or `/undo`): puts the folder back as it was before your last
+  message, deletes files made since, and returns the message to the input box. Snapshots live in
+  `~/.perch/snapshots`, never in the project's own git. Files over 10 MB are left out, and a
+  folder over 1.5 GB or 30,000 files gets no snapshots. A big folder's first snapshot runs in the
+  background, so undo there starts from the second message.
+- **Permission rules** in Claude Code's syntax (`Bash(npm run test:*)`, `Edit(src/**)`,
+  `WebFetch(domain:docs.godotengine.org)`, `mcp__blockbench`), read from Claude Code's settings and
+  from `rules` in `~/.perch/config.json` (`{"allow": [], "ask": [], "deny": []}`). Deny holds
+  in every mode.
+- **Hooks** in Claude Code's format under `hooks` in `~/.perch/config.json`: `PreToolUse`,
+  `PostToolUse`, `UserPromptSubmit` and `Stop`. Exit code 2 blocks, with stderr as the reason.
+  Claude Code's own hooks are not run.
 
 ## Desktop app
 
@@ -112,18 +136,18 @@ pasted or dropped into the message box; DeepSeek V4.1 Flash can see them.
 
 - Reads your `~/.claude/CLAUDE.md` and OpenCode `AGENTS.md` (duplicate paragraphs dropped), project
   `AGENTS.md`/`CLAUDE.md`, and Claude Code's memory notes for the project.
-- Skills from `~/.claude/skills`, OpenCode and `~/.perch/skills` load on demand. Perch installs
+- Skills from `~/.claude/skills`, Claude Code plugins, OpenCode and `~/.perch/skills` load on demand. Perch installs
   `godot-gdscript`, `rpgmaker-mz-plugins`, `pixel-art-pipeline` and `playtest-loop` there once.
 - Specialist subagents in `~/.perch/agents` (`explorer`, `reviewer`, `playtester`,
   `asset-artist`), each limited to the tools it needs, plus any from Claude Code and OpenCode.
-- MCP servers configured for Claude Code or OpenCode are available through `mcp_tools` and
-  `mcp_call`, started only when first used.
+- MCP servers configured for Claude Code (its plugins included) or OpenCode are available through
+  `mcp_tools` and `mcp_call`, started only when first used.
 - `perch mcp` runs Perch as an MCP server, so Claude Code can delegate work to DeepSeek.
 
 ## Not done yet
 
-Git-snapshot undo (OpenCode's `/undo`), web fetch/search tools, Claude Code plugin MCP
-servers, and Unity play mode inside the editor (Play runs builds, or use the Unity MCP server).
+Unity play mode inside the editor (Play runs builds, or use the Unity MCP server), redo after
+undo, IDE plugins, and running in the cloud.
 
 ## Licence
 

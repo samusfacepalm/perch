@@ -475,6 +475,7 @@ select option:disabled { color: var(--muted); }
 .mode-pill { border-color: var(--line); }
 .mode-pill.mode-edits { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .mode-pill.mode-all { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.mode-pill.mode-plan { color: #6e7fd8; border-color: color-mix(in srgb, #6e7fd8 45%, transparent); background: color-mix(in srgb, #6e7fd8 12%, transparent); }
 
 /* the working parrot's repertoire */
 .dancer { position: relative; display: inline-flex; width: 44px; height: 44px; transform-origin: 50% 90%; }

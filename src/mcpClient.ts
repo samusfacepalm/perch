@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { HOME } from "./config.js";
+import { claudePlugins } from "./instructions.js";
 
 export interface ServerConfig {
   name: string;
@@ -70,6 +71,22 @@ export function configuredServers(cwd: string): ServerConfig[] {
   const projectKey = Object.keys(cc?.projects ?? {}).find((k) => path.resolve(k).toLowerCase() === path.resolve(cwd).toLowerCase());
   if (projectKey) fromClaude(cc.projects[projectKey]?.mcpServers, "Claude Code (project)");
   fromClaude(readJSON(path.join(cwd, ".mcp.json"))?.mcpServers, "project .mcp.json");
+
+  // Servers that Claude Code plugins bring, from the plugin's .mcp.json or its plugin.json.
+  // A plugin server whose name is already taken is called plugin:server instead.
+  for (const p of claudePlugins(cwd)) {
+    const manifest = readJSON(path.join(p.root, ".claude-plugin", "plugin.json"));
+    const declared = manifest?.mcpServers;
+    const servers =
+      typeof declared === "string" ? readJSON(path.resolve(p.root, declared))?.mcpServers ?? readJSON(path.resolve(p.root, declared))
+      : declared ?? readJSON(path.join(p.root, ".mcp.json"))?.mcpServers;
+    const root = (v: unknown) => String(v).replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, p.root);
+    for (const [name, s] of Object.entries<any>(servers ?? {})) {
+      if (!s || s.disabled) continue;
+      const fixed = { ...s, command: s.command && root(s.command), args: (s.args ?? []).map(root), url: s.url && root(s.url), env: s.env && Object.fromEntries(Object.entries(s.env).map(([k, v]) => [k, root(v)])) };
+      fromClaude({ [out.has(name) ? `${p.name}:${name}` : name]: fixed }, `Claude Code plugin ${p.name}`);
+    }
+  }
   return [...out.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
